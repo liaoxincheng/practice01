@@ -1,0 +1,40 @@
+/* xAgent 聊天界面样式(Textual CSS) */
+
+Screen {
+    layout: vertical;
+}
+
+/* 聊天区:历史记录 + 流式输出 */
+#chat-area {
+    height: 1fr;
+}
+
+#log {
+    height: 1fr;
+    padding: 0 1;
+}
+
+/* 正在流式输出的内容:天蓝色,和历史消息区分 */
+#stream {
+    height: auto;
+    padding: 0 1;
+    color: #7dd3fc;
+}
+
+/* 底部状态栏 */
+#status {
+    height: 1;
+    padding: 0 1;
+    background: $panel;
+    color: $text 60%;
+}
+
+/* 输入框 */
+#input {
+    height: 3;
+    border: tall $primary;
+}
+
+#input:focus {
+    border: tall $accent;
+}

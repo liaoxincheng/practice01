@@ -1,2 +1,9 @@
+# 含密钥的本地配置文件(拿到代码的同学/老师需自行创建,见 config.ini 内注释)
 config.ini
+# 虚拟环境(体积大,各人本地自行创建)
 venv
+# 模型读写文件的工作目录(演示产生的临时文件)
+workspace
+# Python 缓存
+__pycache__/
+*.pyc
