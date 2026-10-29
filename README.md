@@ -7,8 +7,7 @@
 - **AnythingLLMServer** —— 单文件网页上传文档,让 AnythingLLM 完成向量化。
 - **Agent/Practice01** —— `chat.py`:OpenAI SDK 终端对话,流式打字机输出,每轮把全部聊天记录发给模型(聊天历史上下文)。
 - **Agent/Practice02** —— 流式对话 + function calling,模型自己决定调用工具;按课程推进保留了几个阶段的快照(见下文)。
-- **Agent/xAgent** —— 把 Practice02 改造成 `core` + `tui` 两层:业务逻辑不依赖界面,终端界面用 Textual;工具扩展到 6 个,新增命令行与联网能力。
-- **Agent/xAgent-参考** —— 同课程的另一套 xAgent 实现(结构与工具划分不同),保留作对照参考,说明见目录内 README。
+- **Agent/xAgent** —— 把 Practice02 改造成 `core` + `tui` 两层:业务逻辑不依赖界面,终端界面用 Textual;工具扩展到 14 个,新增命令行与联网能力。
 
 ## 用法
 
@@ -36,13 +35,17 @@ MCP 相关项目(PetHospitalMCP、AnythingLLMMCP、AnythingLLMServer)的用法�
 
 - `chat-stream-tool-getDate.py` —— 只有 `getDate` 一个工具(调本地 `date` 命令取当前日期时间)。
 - `chat-stream-tool-isLeapYear.py` —— 加上 `isLeapYear`(取模判断闰年)。
-- `chat-stream-tool-fileOps.py` —— 加上文件操作工具,当前版本提供 3 个:read_file / write_file / list_dir。
+- `chat-stream-tool-fileOps.py` —— 加上文件操作工具,完整版共 12 个(2 个时间工具 + 10 个文件工具)。
 - `chat.py` —— 完整版快照,共 12 个工具。
-- `chat-stream-tool-fileOps.mmd` —— 程序架构的 Mermaid 图源;渲染效果见 `chat-stream-tool-fileOps.架构图.jpg`(用 <https://mermaid.live> 打开 .mmd 可重新导出)。
+- `chat-stream-tool-fileOps.mmd` —— 程序架构的 Mermaid 图源(用 <https://mermaid.live> 打开 .mmd 可渲染 / 导出图片)。
 
 ## xAgent 的工具清单
 
-文件操作(3 个,带工作目录沙箱):`read_file` / `write_file` / `list_dir`。另外三个是:
+文件操作(9 个,带工作目录沙箱):`read_file` / `write_file` / `edit_file` / `list_dir` / `get_file_type` / `create_directory` / `delete_directory` / `delete_file` / `rename_path`。
+
+时间(2 个):`get_date`(调用本机 PowerShell 命令取当前时间,固定命令防注入)/ `is_leap_year`(闰年判断)。
+
+联网与命令行(3 个):
 
 - `RunCli` —— 在本机执行任意命令行程序。接收 `command`(程序名)和 `args`(参数数组),用 `subprocess.run([程序名] + 参数, shell=False)` 执行,返回退出码、标准输出、标准错误。默认 30 秒超时,输出超过 4000 字符会截断并标明原始长度。
 - `fetchWeb` —— 用 `subprocess` 调本地 `curl` 抓网页 HTML,再用 `trafilatura` 提取正文转 Markdown。保留标题、段落、列表、表格、链接,去掉导航栏、广告、页脚。curl 走参数列表方式,不用 `shell=True`。
@@ -63,11 +66,12 @@ Agent/xAgent/
 │  ├─ llm.py      LLM 客户端:抽象接口 + OpenAI 兼容流式实现
 │  ├─ tools.py    工具注册中心
 │  ├─ text_utils.py  共享小工具:字节解码、输出截断
-│  ├─ file_ops.py    read_file / write_file / list_dir(安全沙箱)
+│  ├─ file_ops.py    9 个文件工具(安全沙箱)
+│  ├─ time_ops.py    get_date / is_leap_year
 │  ├─ cli_ops.py     RunCli
 │  └─ web_ops.py     fetchWeb / searchWeb
 ├─ tui/           Textual 终端界面,只做显示和输入
-├─ tests/         40 个单元测试(不联网、不需要本地模型)
+├─ tests/         52 个单元测试(不联网、不需要本地模型)
 └─ docs/          界面截图与生成脚本
 ```
 

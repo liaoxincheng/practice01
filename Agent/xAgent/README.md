@@ -11,12 +11,16 @@
 | 工具调用:read_file | [core/file_ops.py](core/file_ops.py) | 完整保留,新增**路径安全沙箱**(只能读写工作目录内文件) |
 | 工具调用:write_file | [core/file_ops.py](core/file_ops.py) | 完整保留 |
 | 工具调用:list_dir | [core/file_ops.py](core/file_ops.py) | 完整保留,新增文件/目录类型标注 |
+| Practice02 文件工具(其余 9 个) | [core/file_ops.py](core/file_ops.py) | get_file_type / edit_file(追加、覆盖)/ create_directory / delete_directory(非空可删)/ delete_file / rename_path,全部带沙箱保护 |
+| Practice02 时间工具 | [core/time_ops.py](core/time_ops.py) | get_date(调用本机 PowerShell 命令取时间,固定命令防注入)、is_leap_year(纯 Python) |
 | 工具调用循环(多轮工具调用) | [core/agent.py](core/agent.py) | 完整保留,轮数上限可配置 |
 | `exit` / `退出` 结束对话 | [tui/app.py](tui/app.py) | 完整保留,新增 `reset` 清空对话、`Ctrl+Q` 退出、`Ctrl+L` 清屏 |
 | config.ini 连接本地模型 | [core/config.py](core/config.py) | 保留,配置项带默认值,更健壮 |
 | —(新增)命令行工具 RunCli | [core/cli_ops.py](core/cli_ops.py) | 模型可执行本地命令:退出码+stdout+stderr 返回,超时控制、输出截断、shell 注入防护 |
 | —(新增)联网抓取 fetchWeb | [core/web_ops.py](core/web_ops.py) | 模型可抓取网页并提取正文为 Markdown:保留标题/段落/列表/表格/链接,去除导航/广告/页脚 |
 | —(新增)联网搜索 searchWeb | [core/web_ops.py](core/web_ops.py) | 模型可调用百度千帆 AI 搜索 API,返回搜索摘要+来源标题+URL |
+
+> 工具总计 **14 个**:9 个文件工具 + 2 个时间工具 + 1 个命令行工具 + 2 个联网工具。
 
 ## 二、项目目录结构
 
@@ -36,7 +40,8 @@ xAgent/
 │   ├── llm.py               #   LLM 客户端:抽象接口 LLMClient + OpenAI 兼容实现(流式)
 │   ├── tools.py             #   工具注册中心:工具的注册、说明生成、执行
 │   ├── text_utils.py        #   共享小工具:字节解码(UTF-8/GBK 自适应)、输出截断标注
-│   ├── file_ops.py          #   文件操作工具:read_file / write_file / list_dir(带安全沙箱)
+│   ├── file_ops.py          #   文件操作工具(9 个):read/write/edit/create/delete/rename 等,带安全沙箱
+│   ├── time_ops.py          #   时间工具:get_date(本机命令取时间)、is_leap_year(闰年判断)
 │   ├── cli_ops.py           #   命令行工具:RunCli(执行本地命令,超时/截断/注入防护)
 │   ├── web_ops.py           #   联网工具:fetchWeb(curl 抓网页+trafilatura 提取正文)、
 │   │                        #   searchWeb(百度千帆 AI 搜索)
@@ -49,6 +54,7 @@ xAgent/
 │
 ├── tests/                   # 单元测试(不联网、不需要 LM Studio,使用假 LLM / 本地 HTTP 服务)
 │   ├── test_core.py         #   core 层测试:流式回复、工具调用、错误回滚、路径越界防护
+│   ├── test_extra_ops.py    #   时间工具 + 新增文件工具测试:取时间/闰年/编辑/删除/重命名/沙箱
 │   ├── test_cli_ops.py      #   RunCli 测试:执行/超时/截断/注入防护/schema/Agent 集成
 │   ├── test_web_ops.py      #   fetchWeb/searchWeb 测试:抓取/提取/404/超时/鉴权/schema/Agent 集成
 │   └── test_tui_smoke.py    #   TUI 冒烟测试:Textual 无头模式验证界面挂载与渲染
@@ -158,7 +164,8 @@ timeout_seconds = 20                  ; 搜索 API 请求超时(秒)
 ### 使用
 
 - 输入消息回车发送,AI 流式回复;
-- 试试让模型用文件工具:`帮我把"你好,世界"写入 hello.txt,再读出来念给我听`、`列出目录下有什么文件`;
+- 试试让模型用文件工具:`帮我把"你好,世界"写入 hello.txt,再读出来念给我听`、`列出目录下有什么文件`、`在 notes.txt 末尾追加一行"备忘"`、`把 hello.txt 重命名为 greet.txt`、`建一个 projects/demo 目录`、`hello.txt 是什么类型的文件`;
+- 试试让模型用时间工具:`现在几点了`、`2024 年是闰年吗`;
 - 试试让模型用命令行工具 RunCli:`ping 一下 127.0.0.1 看通不通`、`用 ipconfig 查一下我的 IP 地址`;
 - 试试让模型联网抓网页:`用 fetchWeb 抓取 https://example.com 并总结一下内容`;
 - 试试让模型联网搜索:`用 searchWeb 搜索"2026 年诺贝尔物理学奖得主"`(需先在 config.ini 的 [search] 段填好百度千帆 API Key);

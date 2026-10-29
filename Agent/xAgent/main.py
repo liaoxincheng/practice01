@@ -23,6 +23,7 @@ from core.cli_ops import register_cli_ops
 from core.config import load_config
 from core.file_ops import register_file_ops
 from core.llm import OpenAILLMClient
+from core.time_ops import register_time_ops
 from core.tools import ToolRegistry
 from core.web_ops import register_web_ops
 from tui.app import ChatApp
@@ -42,6 +43,7 @@ def build_agent(config_path: Path) -> Agent:
 
     tools = ToolRegistry()
     register_file_ops(tools, work_dir=config.file_ops.work_dir)
+    register_time_ops(tools)
     register_cli_ops(
         tools,
         timeout_seconds=config.cli_ops.timeout_seconds,

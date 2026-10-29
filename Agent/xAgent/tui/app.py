@@ -69,7 +69,9 @@ class ChatApp(App):
         """界面挂载完成后:输出欢迎语,聚焦输入框。"""
         self.query_one("#log", RichLog).write(
             f"👋 欢迎使用 xAgent!当前模型:{self._agent.model_name}\n"
-            "   我可以调用文件工具(read_file / write_file / list_dir)、\n"
+            "   共 14 个工具:文件工具(read_file / write_file / edit_file /\n"
+            "   list_dir / get_file_type / create_directory / delete_directory /\n"
+            "   delete_file / rename_path)、时间工具(get_date / is_leap_year)、\n"
             "   命令行工具(RunCli)和联网工具(fetchWeb 抓网页 / searchWeb 搜索),试试:\n"
             "   · 帮我把\"你好,世界\"写入 hello.txt,再读出来念给我听\n"
             "   · ping 一下 127.0.0.1 看通不通\n"
