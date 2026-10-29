@@ -1,36 +1,93 @@
+# practice02(二):带 getDate / isLeapYear 工具调用的流式对话程序
+# 用法:
+#   python chat-stream-tool-isLeapYear.py
+# 输入 exit 或 退出 结束对话
+#
+# 与 chat-stream-tool-getDate.py 的区别:
+#   在 getDate 的基础上新增 1 个工具:isLeapYear;
+#   课程要求:闰年判断用 Python 代码计算,而不是让模型自己推算。
+import configparser
 import json
-import os
-import re
 import subprocess
 import sys
-import urllib.error
-import urllib.request
+from datetime import datetime
 
-cfg = {}
-for line in open("config.ini", encoding="utf-8"):
-    if "=" in line:
-        k, v = line.split("=", 1)
-        cfg[k.strip().lower()] = v.strip()
+# Windows 下统一按 UTF-8 读写终端,避免中文乱码
+if sys.platform == "win32":
+    sys.stdin.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
-headers = {"Content-Type": "application/json"}
-if cfg.get("api_key"):
-    headers["Authorization"] = "Bearer " + cfg["api_key"]
+from openai import OpenAI
+
+config = configparser.ConfigParser()
+config.read("config.ini", encoding="utf-8")
+client = OpenAI(
+    base_url=config["llm"]["base_url"],
+    api_key=config["llm"]["api_key"],
+)
+MODEL = config["llm"]["model"]
+MAX_TOOL_ROUNDS = 5  # 工具调用最多来回几轮,防止模型一直调工具停不下来
+
+
+# ---------- 工具实现 ----------
+
+def get_date(format: str = "%Y-%m-%d %H:%M:%S") -> str:
+    """调用本机命令获取当前日期和时间(固定命令,不拼接参数)。"""
+    try:
+        proc = subprocess.run(
+            [
+                "powershell", "-NoProfile", "-Command",
+                "Get-Date -Format 'yyyy-MM-ddTHH:mm:ss'",
+            ],
+            shell=False,
+            capture_output=True,
+            timeout=10,
+        )
+    except FileNotFoundError:
+        return "错误:找不到 powershell 程序,无法获取日期时间"
+    except subprocess.TimeoutExpired:
+        return "错误:获取日期时间超时"
+
+    if proc.returncode != 0:
+        err = proc.stderr.decode("utf-8", errors="replace").strip()
+        return f"错误:获取日期时间失败:{err}"
+
+    text = proc.stdout.decode("utf-8", errors="replace").strip()
+    try:
+        moment = datetime.strptime(text, "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return f"当前日期时间:{text}"
+    return f"当前日期时间:{moment.strftime(format or '%Y-%m-%d %H:%M:%S')}"
+
+
+def is_leap_year(year: int = 0) -> str:
+    """判断某年是不是闰年(纯 Python 计算);不传年份时用本机当前年份。
+
+    规则:能被 4 整除但不能被 100 整除,或者能被 400 整除,就是闰年。
+    """
+    if not year:
+        year = datetime.now().year
+    leap = (year % 4 == 0 and year % 100 != 0) or year % 400 == 0
+    return f"{year} 年{'是' if leap else '不是'}闰年"
+
+
+# ---------- 工具说明(OpenAI function calling 格式,给模型看的"说明书") ----------
 
 TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "getDate",
-            "description": "获取当前这台电脑的本地日期和时间。内部通过调用本地 date 命令取得，返回命令输出的时间字符串。",
+            "description": "获取当前电脑的日期和时间。回答与日期、时间相关的问题前先调用它,不要自己编。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "format": {
                         "type": "string",
-                        "description": "可选，date 命令的格式化串，例如 +%Y-%m-%d %H:%M:%S。不传则用 +%Y-%m-%d %H:%M:%S %A",
+                        "description": "输出格式(可选),Python strftime 写法,默认 %Y-%m-%d %H:%M:%S",
                     }
                 },
-                "required": [],
             },
         },
     },
@@ -38,196 +95,114 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "isLeapYear",
-            "description": "判断某个年份是不是闰年。凡涉及闰年、2 月有多少天、某年有 365 还是 366 天这类问题，都应该调用它，不要自己心算。规则：能被 4 整除且不能被 100 整除，或者能被 400 整除，就是闰年。",
+            "description": "判断一个年份是不是闰年。不传年份时判断本机当前年份。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "year": {
                         "type": "integer",
-                        "description": "要判断的年份，四位数字，例如 2024。用户问的是“今年”“当前年份”时，不要猜年份，直接不传这个参数，由本机日期决定；不确定年份时也先不传。",
+                        "description": "要判断的年份,如 2024;不传则用当前年份",
                     }
                 },
-                "required": [],
             },
         },
     },
 ]
 
-DEFAULT_FORMAT = "+%Y-%m-%d %H:%M:%S %A"
-DATE_EXE_FALLBACKS = (
-    r"D:\Git\usr\bin\date.exe",
-    r"C:\Program Files\Git\usr\bin\date.exe",
-    r"C:\Program Files (x86)\Git\usr\bin\date.exe",
-    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Git", "usr", "bin", "date.exe"),
-)
 
-
-def find_date():
-    """在 PATH 和 Git 常见安装位置里找真正的 date 命令。
-    Windows 自带的 date 是改日期的命令，不能用来取时间，所以优先用 Git 附带的 date.exe。
-    """
-    for folder in os.environ.get("PATH", "").split(os.pathsep):
-        if not folder:
-            continue
-        for name in ("date.exe", "date"):
-            path = os.path.join(folder, name)
-            if os.path.isfile(path):
-                return path
-    for path in DATE_EXE_FALLBACKS:
-        if os.path.isfile(path):
-            return path
-    return None
-
-
-def run(cmd):
-    """跑命令拿 stdout。先按 UTF-8 解，解不开再按 GBK 解。
-    Git 的 date.exe 输出是 UTF-8，Windows 自带的 date /t 输出是 GBK，
-    统一用默认编码解会把中文变成乱码，所以这里自己按字节解。
-    """
-    out = subprocess.run(cmd, capture_output=True)
-    data = out.stdout
-    for enc in ("utf-8", "gbk"):
-        try:
-            return data.decode(enc).strip()
-        except UnicodeDecodeError:
-            continue
-    return data.decode("utf-8", errors="replace").strip()
-
-
-def get_date(fmt=None):
-    """调用本地 date 命令取当前日期时间，不在 Python 里自己算时间。"""
-    fmt = (fmt or DEFAULT_FORMAT).strip()
-    if not fmt.startswith("+"):
-        fmt = "+" + fmt
-    exe = find_date()
-    if exe:
-        text = run([exe, fmt])
-        if text:
-            return text
-    # 没装 Git 时退回 Windows 自带的 date / time 命令
-    return run(["cmd", "/c", "date /t"]) + " " + run(["cmd", "/c", "time /t"])
-
-
-def is_leap(year):
-    """闰年判断：能被 4 整除且不能被 100 整除，或者能被 400 整除。"""
-    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
-
-
-def is_leap_year(year=None):
-    """用 Python 代码算出闰年结果，再拼成给模型看的文字。"""
-    if year is None or str(year).strip() == "":
-        year = get_date("+%Y")
-    try:
-        year = int(str(year).strip())
-    except ValueError:
-        return "年份不合法：%s，请传四位数字的年份，例如 2024。" % year
-    if year < 1:
-        return "年份不合法：%s，请传四位数字的年份，例如 2024。" % year
-    if is_leap(year):
-        return "%d 年是闰年，2 月有 29 天，全年 366 天。" % year
-    return "%d 年不是闰年，2 月有 28 天，全年 365 天。" % year
-
-
-def normalize_args(name, args, said=""):
-    """把模型给的参数校正成真正要用的参数，日志和执行都用这一份，避免显示与实际不一致。"""
-    if name != "isLeapYear":
-        return args
-    args = dict(args)
-    # 用户这句话里没提到年份时，模型容易凭先验猜一个（比如 2024），
-    # 这种情况一律按本机当前年份算，避免答错。
-    if not re.search(r"\d{3,4}", said):
-        args["year"] = int(get_date("+%Y"))
-    return args
-
-
-def call_tool(name, args):
+def execute_tool(name: str, arguments: dict) -> str:
+    """执行模型要求的工具调用,返回执行结果字符串。"""
     if name == "getDate":
-        return get_date(args.get("format"))
+        return get_date(arguments.get("format") or "%Y-%m-%d %H:%M:%S")
     if name == "isLeapYear":
-        return is_leap_year(args.get("year"))
-    return "未知工具：" + name
-
-
-history = []
-while True:
-    try:
-        prompt = input("你：")
-    except (EOFError, KeyboardInterrupt):
-        break
-    if not prompt.strip():
-        continue
-    history.append({"role": "user", "content": prompt})
-    base = len(history) - 1  # 这一轮开始前的历史长度，出错时回滚到这里
-    print("---")
-
-    for _ in range(5):
-        body = json.dumps(
-            {"model": cfg["model"], "messages": history, "stream": True, "tools": TOOLS}
-        ).encode("utf-8")
         try:
-            resp = urllib.request.urlopen(
-                urllib.request.Request(
-                    cfg["base_url"].rstrip("/") + "/chat/completions", body, headers
-                )
-            )
-        except urllib.error.URLError as e:
-            # 服务没起来时给一句人话，不要甩一屏异常栈
-            print("连不上模型服务 %s" % cfg["base_url"])
-            print("原因：%s" % e.reason)
-            print("先确认服务已启动：netstat -ano | findstr :11437")
-            del history[base:]
-            break
+            year = int(arguments.get("year") or 0)
+        except (TypeError, ValueError):
+            return "错误:year 必须是整数年份,如 2024"
+        return is_leap_year(year)
+    return f"错误:没有名为 {name} 的工具"
 
-        answer = ""
-        calls = {}
-        for raw in resp:
-            line = raw.decode("utf-8").strip()
-            if not line.startswith("data:") or line.endswith("[DONE]"):
-                continue
-            delta = json.loads(line[5:]).get("choices", [{}])[0].get("delta", {})
-            piece = delta.get("content") or ""
-            if piece:
-                answer += piece
-                sys.stdout.write(piece)
-                sys.stdout.flush()
-            for call in delta.get("tool_calls") or []:
-                slot = calls.setdefault(
-                    call.get("index", 0), {"id": "", "name": "", "arguments": ""}
-                )
-                if call.get("id"):
-                    slot["id"] = call["id"]
-                fn = call.get("function") or {}
-                if fn.get("name") and not slot["name"]:
-                    slot["name"] = fn["name"]
-                slot["arguments"] += fn.get("arguments") or ""
+
+# ---------- 主循环 ----------
+
+# 聊天历史:每次对话都带上,让模型记住上下文
+messages = []
+
+print("带 getDate / isLeapYear 工具的大模型对话程序 [流式]")
+print("模型可调用工具: getDate 获取日期时间 / isLeapYear 判断闰年")
+print("输入 exit 或 退出 结束对话")
+
+while True:
+    user_input = input("你: ").strip()
+    if user_input.lower() in ("exit", "quit", "退出"):
+        break
+    if not user_input:
+        continue
+
+    messages.append({"role": "user", "content": user_input})
+
+    # 工具调用循环:模型每回答一次,如果还想调用工具,就执行工具并把结果送回,再让它回答
+    for _ in range(MAX_TOOL_ROUNDS):
+        print("AI: ", end="", flush=True)
+        reply = ""
+        # 流式过程中,一次工具调用会分成多个增量(chunk)到达,先按 index 合并
+        tool_calls = {}
+
+        stream = client.chat.completions.create(
+            model=MODEL, messages=messages, tools=TOOLS, stream=True
+        )
+        for chunk in stream:
+            delta = chunk.choices[0].delta
+            if delta.content:
+                reply += delta.content
+                print(delta.content, end="", flush=True)
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    entry = tool_calls.setdefault(
+                        tc.index, {"id": "", "name": "", "arguments": ""}
+                    )
+                    if tc.id:
+                        entry["id"] = tc.id
+                    if tc.function:
+                        if tc.function.name:
+                            entry["name"] += tc.function.name
+                        if tc.function.arguments:
+                            entry["arguments"] += tc.function.arguments
         print()
 
-        if not calls:
-            history.append({"role": "assistant", "content": answer})
+        # 模型没有要求调用工具:正常回答结束
+        if not tool_calls:
+            messages.append({"role": "assistant", "content": reply})
             break
 
-        ordered = [calls[i] for i in sorted(calls)]
-        history.append(
+        # 模型要求调用工具:把"带工具调用的回复"记入历史
+        messages.append(
             {
                 "role": "assistant",
-                "content": answer or None,
+                "content": reply or None,
                 "tool_calls": [
                     {
-                        "id": s["id"],
+                        "id": entry["id"],
                         "type": "function",
-                        "function": {"name": s["name"], "arguments": s["arguments"] or "{}"},
+                        "function": {
+                            "name": entry["name"],
+                            "arguments": entry["arguments"],
+                        },
                     }
-                    for s in ordered
+                    for entry in tool_calls.values()
                 ],
             }
         )
-        for slot in ordered:
+
+        # 逐个执行工具,并把结果作为 tool 消息送回模型
+        for entry in tool_calls.values():
             try:
-                args = json.loads(slot["arguments"] or "{}")
+                arguments = json.loads(entry["arguments"] or "{}")
             except json.JSONDecodeError:
-                args = {}
-            args = normalize_args(slot["name"], args, prompt)
-            print("[tool] %s(%s)" % (slot["name"], json.dumps(args, ensure_ascii=False)))
-            result = call_tool(slot["name"], args)
-            print("[tool] -> " + result)
-            history.append({"role": "tool", "tool_call_id": slot["id"], "content": result})
+                arguments = {}
+            print(f"  [调用工具 {entry['name']}({json.dumps(arguments, ensure_ascii=False)})]")
+            result = execute_tool(entry["name"], arguments)
+            print(f"  [工具结果] {result[:200]}")
+            messages.append(
+                {"role": "tool", "tool_call_id": entry["id"], "content": result}
+            )
