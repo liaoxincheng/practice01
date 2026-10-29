@@ -2,9 +2,13 @@
 
 按课程进度组织的作业仓库,一个目录一次任务。
 
+- **PetHospitalMCP** —— 宠爱 AI 病历管理系统:Go 后端存病历,Python MCP 服务器把它包装成工具给 AI 调用。
+- **AnythingLLMMCP** —— 把 AnythingLLM 工作区的检索问答接成 MCP 工具。
+- **AnythingLLMServer** —— 单文件网页上传文档,让 AnythingLLM 完成向量化。
 - **Agent/Practice01** —— `chat.py`:OpenAI SDK 终端对话,流式打字机输出,每轮把全部聊天记录发给模型(聊天历史上下文)。
-- **Agent/Practice02** —— `chat-stream-tool-fileOps.py`:在 Practice01 基础上加入 function calling,模型自己决定调用 3 个文件操作工具,支持多轮工具调用。
+- **Agent/Practice02** —— 流式对话 + function calling,模型自己决定调用工具;按课程推进保留了几个阶段的快照(见下文)。
 - **Agent/xAgent** —— 把 Practice02 改造成 `core` + `tui` 两层:业务逻辑不依赖界面,终端界面用 Textual;工具扩展到 6 个,新增命令行与联网能力。
+- **Agent/xAgent-参考** —— 同课程的另一套 xAgent 实现(结构与工具划分不同),保留作对照参考,说明见目录内 README。
 
 ## 用法
 
@@ -24,15 +28,21 @@ xAgent 的 `core/` 不导入 textual 或任何界面框架,将来加 Web / Deskt
 
 xAgent 的联网工具需要在 `config.ini` 的 `[search]` 小节填百度千帆的 API Key,`searchWeb` 才能用;`fetchWeb` 依赖 `trafilatura`,没装会给出安装提示,不影响其余工具。
 
-## Practice02 的工具清单
+MCP 相关项目(PetHospitalMCP、AnythingLLMMCP、AnythingLLMServer)的用法见各自目录内的 README。
 
-- `read_file` —— 读取文本文件内容。
-- `write_file` —— 把内容写入文件。
-- `list_dir` —— 列出目录内容。
+## Agent/Practice02 的文件
+
+按课程推进保留了几个阶段的快照:
+
+- `chat-stream-tool-getDate.py` —— 只有 `getDate` 一个工具(调本地 `date` 命令取当前日期时间)。
+- `chat-stream-tool-isLeapYear.py` —— 加上 `isLeapYear`(取模判断闰年)。
+- `chat-stream-tool-fileOps.py` —— 加上文件操作工具,当前版本提供 3 个:read_file / write_file / list_dir。
+- `chat.py` —— 完整版快照,共 12 个工具。
+- `chat-stream-tool-fileOps.mmd` —— 程序架构的 Mermaid 图源;渲染效果见 `chat-stream-tool-fileOps.架构图.jpg`(用 <https://mermaid.live> 打开 .mmd 可重新导出)。
 
 ## xAgent 的工具清单
 
-在 Practice02 的 3 个文件工具(read_file / write_file / list_dir,并新增工作目录沙箱)基础上,新增 3 个:
+文件操作(3 个,带工作目录沙箱):`read_file` / `write_file` / `list_dir`。另外三个是:
 
 - `RunCli` —— 在本机执行任意命令行程序。接收 `command`(程序名)和 `args`(参数数组),用 `subprocess.run([程序名] + 参数, shell=False)` 执行,返回退出码、标准输出、标准错误。默认 30 秒超时,输出超过 4000 字符会截断并标明原始长度。
 - `fetchWeb` —— 用 `subprocess` 调本地 `curl` 抓网页 HTML,再用 `trafilatura` 提取正文转 Markdown。保留标题、段落、列表、表格、链接,去掉导航栏、广告、页脚。curl 走参数列表方式,不用 `shell=True`。

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>AnythingLLM 文档上传</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        h1 { font-size: 20px; }
+        .box { border: 2px dashed #ccc; padding: 30px; text-align: center; margin: 20px 0; border-radius: 8px; }
+        .box.drag { border-color: #4CAF50; background: #f0fff0; }
+        input[type="file"] { margin: 10px 0; }
+        button { background: #4CAF50; color: #fff; border: none; padding: 10px 24px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        button:disabled { background: #aaa; cursor: not-allowed; }
+        #log { margin-top: 20px; padding: 12px; background: #f5f5f5; border-radius: 4px; white-space: pre-wrap; font-size: 13px; max-height: 300px; overflow-y: auto; display: none; }
+        .ok { color: green; } .err { color: red; } .info { color: #666; }
+    </style>
+</head>
+<body>
+    <h1>AnythingLLM 文档上传</h1>
+    <div class="box" id="dropzone">
+        <p>拖拽文件到此处，或点击选择文件</p>
+        <input type="file" id="fileInput">
+    </div>
+    <button id="btn" onclick="upload()">上传并向量化</button>
+    <div id="log"></div>
+
+<script src="config.js"></script>
+<script>
+const API = 'http://localhost:3001';
+const KEY = window.ANYTHINGLLM_API_KEY || '';
+const logEl = document.getElementById('log');
+const btn = document.getElementById('btn');
+const fileInput = document.getElementById('fileInput');
+const dropzone = document.getElementById('dropzone');
+
+function log(msg, cls = '') {
+    logEl.style.display = 'block';
+    logEl.innerHTML += `<span class="${cls}">${msg}</span>\n`;
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+// 拖拽支持
+dropzone.ondragover = e => { e.preventDefault(); dropzone.classList.add('drag'); };
+dropzone.ondragleave = () => dropzone.classList.remove('drag');
+dropzone.ondrop = e => {
+    e.preventDefault();
+    dropzone.classList.remove('drag');
+    fileInput.files = e.dataTransfer.files;
+};
+dropzone.onclick = () => fileInput.click();
+
+async function upload() {
+    const file = fileInput.files[0];
+    if (!file) return alert('请先选择文件');
+    if (!KEY) return alert('缺少 API key：把同目录的 config.example.js 复制为 config.js 并填入你的 key');
+
+    btn.disabled = true;
+    logEl.innerHTML = '';
+    log(`正在上传: ${file.name}...`, 'info');
+
+    try {
+        // 0. 取第一个工作区的 slug（接口要的是 slug，不是数字 id）
+        const wsRes = await fetch(`${API}/api/v1/workspaces`, {
+            headers: { 'Authorization': `Bearer ${KEY}` }
+        });
+        const wsData = await wsRes.json();
+        const list = wsData.workspaces || [];
+        if (!list.length) throw new Error('服务器上没有任何工作区');
+        const slug = list[0].slug;
+        log(`目标工作区: ${list[0].name} (slug=${slug})`, 'info');
+
+        // 1. 上传文档
+        const form = new FormData();
+        form.append('file', file);
+        const uploadRes = await fetch(`${API}/api/v1/document/upload`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${KEY}` },
+            body: form
+        });
+        const uploadData = await uploadRes.json();
+
+        if (!uploadRes.ok || !uploadData.success) {
+            throw new Error(uploadData.error || uploadData.message || '上传失败');
+        }
+        log(`上传成功!`, 'ok');
+        log(`文档位置: ${JSON.stringify(uploadData.documents)}`, 'info');
+
+        // 2. 向量化嵌入
+        const docLocation = uploadData.documents?.[0]?.location;
+        if (!docLocation) throw new Error('未获取到文档位置');
+
+        log('正在向量化嵌入...', 'info');
+        const embedRes = await fetch(`${API}/api/v1/workspace/${slug}/update-embeddings`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ adds: [docLocation] })
+        });
+        const embedData = await embedRes.json();
+
+        if (!embedRes.ok) {
+            throw new Error(embedData.error || embedData.message || '向量化失败');
+        }
+        log('向量化嵌入完成!', 'ok');
+
+    } catch (e) {
+        log(`错误: ${e.message}`, 'err');
+    } finally {
+        btn.disabled = false;
+    }
+}
+</script>
+</body>
+</html>

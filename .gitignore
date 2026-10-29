@@ -1,9 +1,24 @@
-# 含密钥的本地配置文件(拿到代码的同学/老师需自行创建,见 config.ini 内注释)
+# 含密钥的本地配置文件(各目录只提交 *.example.* 模板,真实配置自行复制后填写)
 config.ini
+config.js
+
 # 虚拟环境(体积大,各人本地自行创建)
 venv
+.venv
+
 # 模型读写文件的工作目录(演示产生的临时文件)
 workspace
-# Python 缓存
+
+# Python 缓存与构建产物
 __pycache__/
 *.pyc
+*.egg-info/
+*.log
+test_mcp_result.json
+
+# Go 构建产物(源码在 PetHospitalMCP/backend/,用 go build 自行编译)
+*.exe
+PetHospitalMCP/release-windows/
+
+# IDE
+.idea/

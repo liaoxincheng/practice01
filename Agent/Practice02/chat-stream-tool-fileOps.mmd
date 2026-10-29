@@ -1,0 +1,113 @@
+%% chat-stream-tool-fileOps.py 代码架构图
+%% 由 chat.py 的实际结构生成，Mermaid flowchart
+flowchart TD
+    subgraph START["启动阶段 L11-L26"]
+        A1["读取 config.ini<br/>base_url / model / api_key"]
+        A2["构造 headers<br/>api_key 非空则加 Bearer"]
+        A1 --> A2
+    end
+
+    subgraph DECLARE["工具声明 L29-L166"]
+        B1["_tool() 工厂函数<br/>拼 name/description/parameters"]
+        B2["TOOLS 列表<br/>12 个工具的 JSON 声明"]
+        B1 --> B2
+    end
+
+    subgraph CONFIG["常量配置 L168-L183"]
+        C1["DEFAULT_FORMAT<br/>date 格式串"]
+        C2["DATE_EXE_FALLBACKS<br/>Git date.exe 候选路径"]
+        C3["MAX_READ_BYTES = 200KB"]
+        C4["TEXT_SUFFIXES<br/>纯文本扩展名白名单"]
+    end
+
+    subgraph TOOLIMPL["工具实现 L185-L541"]
+        direction TB
+        subgraph TIME["时间与历法"]
+            D1["find_date()<br/>PATH 扫描 + 回落候选"]
+            D2["run()<br/>subprocess + UTF8/GBK 双解码"]
+            D3["get_date()<br/>调用 date 命令"]
+            D4["is_leap()<br/>取模判断"]
+            D5["is_leap_year()<br/>包装成给模型的文字"]
+            D1 --> D2 --> D3
+            D4 --> D5
+        end
+
+        subgraph HELPER["公共辅助"]
+            E1["resolve()<br/>相对路径转绝对"]
+            E2["human_size()<br/>字节转可读单位"]
+            E3["looks_textual()<br/>扩展名 + 二进制探测"]
+            E4["read_text()<br/>UTF8-sig / GBK 逐级尝试"]
+            E3 --> E4
+        end
+
+        subgraph OPS_READ["读取类 4 个"]
+            direction TB
+            F1["tool_get_current_directory<br/>os.getcwd"]
+            F2["tool_list_directory<br/>os.listdir / os.walk"]
+            F3["tool_get_file_type<br/>mimetypes + looks_textual"]
+            F4["tool_read_file<br/>read_text + 行数截断"]
+        end
+
+        subgraph OPS_WRITE["写入类 3 个"]
+            direction TB
+            F5["tool_create_file<br/>open w + makedirs"]
+            F6["tool_edit_file<br/>overwrite / append"]
+            F7["tool_create_directory<br/>os.makedirs"]
+        end
+
+        subgraph OPS_DEL["删除与改名 3 个"]
+            direction TB
+            F8["tool_delete_directory<br/>shutil.rmtree"]
+            F9["tool_delete_file<br/>os.remove"]
+            F10["tool_rename_path<br/>shutil.move"]
+        end
+
+        F2 --> E1
+        F3 --> E3
+        F4 --> E4
+        F4 --> E2
+        F6 --> E4
+        F8 --> E2
+        F9 --> E2
+        F10 --> E1
+    end
+
+    subgraph DISPATCH["分发层 L544-L581"]
+        G1["normalize_args()<br/>isLeapYear 年份兜底校正"]
+        G2["call_tool()<br/>if 链分发到 12 个工具"]
+        G1 --> G2
+    end
+
+    subgraph LOOP["主循环 L584-L669"]
+        H1["input 用户输入"]
+        H2["POST /chat/completions<br/>stream=true + tools=TOOLS"]
+        H3["逐行解析 SSE<br/>data: 前缀"]
+        H4{"delta 有<br/>tool_calls?"}
+        H5["按 index 归并分片<br/>拼接 id/name/arguments"]
+        H6["追加 assistant 消息<br/>带 tool_calls"]
+        H7["逐个执行工具<br/>结果作为 role=tool 回灌"]
+        H8["追加 assistant<br/>纯文本回答"]
+        H9["最多 12 轮<br/>防死循环"]
+        H10["URLError 捕获<br/>整轮回滚 del history[base:]"]
+
+        H1 --> H2
+        H2 --> H3 --> H4
+        H4 -->|无| H8
+        H4 -->|有| H5 --> H6 --> H7
+        H7 --> H9
+        H9 -->|未满 12 轮| H2
+        H2 -.连接失败.-> H10
+    end
+
+    A2 --> LOOP
+    B2 --> H2
+    CONFIG --> TOOLIMPL
+    TOOLIMPL --> DISPATCH
+    DISPATCH --> H7
+
+    style START fill:#e3f2fd
+    style DECLARE fill:#fff3e0
+    style CONFIG fill:#f3e5f5
+    style TOOLIMPL fill:#e8f5e9
+    style DISPATCH fill:#fff9c4
+    style LOOP fill:#fce4ec
