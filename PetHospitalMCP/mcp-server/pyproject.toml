@@ -1,13 +1,7 @@
-[tool.setuptools]
-py-modules = ["server", "tools", "pet_api_client"]
-
-[build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "pethospital-mcp-server"
 version = "1.0.0"
+description = "把宠物医院 REST API 包装成 MCP 工具(AI 可查询病历、建档案、写病历、生成随访小结)"
 requires-python = ">=3.10"
 dependencies = [
     "mcp[cli]>=2.0.0",
@@ -15,4 +9,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[project.scripts]
+pethospital-mcp = "server:main"
+
+[tool.setuptools]
+py-modules = ["server", "tools", "pet_api_client", "ollama_client"]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"

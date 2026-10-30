@@ -1,14 +1,7 @@
-[tool.setuptools]
-py-modules = ["server", "tools", "anythingllm_client"]
-
-[build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "anythingllm-mcp-server"
+name = "anythingllm-mcp"
 version = "0.1.0"
-description = "MCP server for interacting with AnythingLLM workspaces"
+description = "把 AnythingLLM 工作区的检索问答包装成 MCP 工具"
 requires-python = ">=3.10"
 dependencies = [
     "mcp[cli]>=2.0.0",
@@ -16,4 +9,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[project.scripts]
+anythingllm-mcp = "server:main"
+
+[tool.setuptools]
+py-modules = ["server", "anythingllm_api"]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"

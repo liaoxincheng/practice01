@@ -1,116 +1,335 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <title>AnythingLLM 文档上传</title>
-    <style>
-        body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
-        h1 { font-size: 20px; }
-        .box { border: 2px dashed #ccc; padding: 30px; text-align: center; margin: 20px 0; border-radius: 8px; }
-        .box.drag { border-color: #4CAF50; background: #f0fff0; }
-        input[type="file"] { margin: 10px 0; }
-        button { background: #4CAF50; color: #fff; border: none; padding: 10px 24px; border-radius: 4px; cursor: pointer; font-size: 14px; }
-        button:disabled { background: #aaa; cursor: not-allowed; }
-        #log { margin-top: 20px; padding: 12px; background: #f5f5f5; border-radius: 4px; white-space: pre-wrap; font-size: 13px; max-height: 300px; overflow-y: auto; display: none; }
-        .ok { color: green; } .err { color: red; } .info { color: #666; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnythingLLM 知识库上传</title>
+<style>
+    :root {
+        --bg: #f4f6f8;
+        --card: #ffffff;
+        --text: #1f2933;
+        --muted: #6b7785;
+        --primary: #2f6fed;
+        --primary-dark: #2457bb;
+        --ok: #1a7f37;
+        --err: #c62828;
+        --border: #d9dee5;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        display: flex;
+        justify-content: center;
+        padding: 40px 16px;
+    }
+    main {
+        width: 100%;
+        max-width: 640px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: 0 6px 24px rgba(31, 41, 51, 0.08);
+        padding: 28px 32px 24px;
+    }
+    h1 { margin: 0 0 4px; font-size: 22px; }
+    .subtitle { margin: 0 0 22px; color: var(--muted); font-size: 13px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+    input[type="text"], select {
+        width: 100%;
+        padding: 9px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        font-size: 14px;
+        background: #fff;
+    }
+    .row { display: flex; gap: 10px; }
+    .row > * { flex: 1; }
+    .dropzone {
+        margin-top: 8px;
+        border: 2px dashed var(--border);
+        border-radius: 10px;
+        padding: 34px 16px;
+        text-align: center;
+        cursor: pointer;
+        color: var(--muted);
+        transition: border-color .15s, background .15s;
+    }
+    .dropzone:hover, .dropzone.dragging {
+        border-color: var(--primary);
+        background: #eef4ff;
+        color: var(--text);
+    }
+    .dropzone strong { color: var(--primary); }
+    #fileName { margin-top: 8px; font-size: 13px; color: var(--text); word-break: break-all; }
+    #fileInput { display: none; }
+    .actions { margin-top: 20px; display: flex; align-items: center; gap: 12px; }
+    button {
+        border: none;
+        border-radius: 6px;
+        padding: 10px 22px;
+        font-size: 14px;
+        cursor: pointer;
+        background: var(--primary);
+        color: #fff;
+    }
+    button:hover:not(:disabled) { background: var(--primary-dark); }
+    button:disabled { background: #a9b4c2; cursor: not-allowed; }
+    button.secondary { background: #e8edf3; color: var(--text); }
+    button.secondary:hover:not(:disabled) { background: #dbe3ec; }
+    .hint { font-size: 12px; color: var(--muted); }
+    #log {
+        margin-top: 18px;
+        padding: 12px 14px;
+        background: #0f1720;
+        color: #d6dee8;
+        border-radius: 8px;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12.5px;
+        line-height: 1.7;
+        white-space: pre-wrap;
+        max-height: 260px;
+        overflow-y: auto;
+        display: none;
+    }
+    #log .ok { color: #5ddc8a; }
+    #log .err { color: #ff8a80; }
+    #log .info { color: #9fb3c8; }
+</style>
 </head>
 <body>
-    <h1>AnythingLLM 文档上传</h1>
-    <div class="box" id="dropzone">
-        <p>拖拽文件到此处，或点击选择文件</p>
-        <input type="file" id="fileInput">
+<main>
+    <h1>AnythingLLM 知识库上传</h1>
+    <p class="subtitle">把本地文档上传到 AnythingLLM 工作区并完成向量化,之后就能在工作区里检索问答。</p>
+
+    <label for="apiUrl">AnythingLLM 服务地址</label>
+    <input id="apiUrl" type="text" value="http://localhost:3001" spellcheck="false">
+
+    <label for="workspace">目标工作区</label>
+    <div class="row">
+        <select id="workspace"></select>
+        <button id="reloadBtn" class="secondary" type="button">刷新列表</button>
     </div>
-    <button id="btn" onclick="upload()">上传并向量化</button>
+    <p class="hint">工作区列表需要连接 AnythingLLM 后刷新;上传会写入所选工作区。</p>
+
+    <label>选择文档</label>
+    <div id="dropzone" class="dropzone">
+        把文件拖到这里,或<strong>点击选择</strong>
+        <div id="fileName">还没有选择文件</div>
+    </div>
+    <input id="fileInput" type="file">
+
+    <div class="actions">
+        <button id="uploadBtn" type="button">上传并向量化</button>
+        <span class="hint">支持 txt / md / pdf / docx 等 AnythingLLM 可解析的格式</span>
+    </div>
+
     <div id="log"></div>
+</main>
 
 <script src="config.js"></script>
 <script>
-const API = 'http://localhost:3001';
-const KEY = window.ANYTHINGLLM_API_KEY || '';
-const logEl = document.getElementById('log');
-const btn = document.getElementById('btn');
-const fileInput = document.getElementById('fileInput');
-const dropzone = document.getElementById('dropzone');
+(function () {
+    'use strict';
 
-function log(msg, cls = '') {
-    logEl.style.display = 'block';
-    logEl.innerHTML += `<span class="${cls}">${msg}</span>\n`;
-    logEl.scrollTop = logEl.scrollHeight;
-}
+    const config = window.ANYTHINGLLM_CONFIG || {};
+    const apiUrlInput = document.getElementById('apiUrl');
+    const workspaceSelect = document.getElementById('workspace');
+    const reloadBtn = document.getElementById('reloadBtn');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const fileInput = document.getElementById('fileInput');
+    const dropzone = document.getElementById('dropzone');
+    const fileName = document.getElementById('fileName');
+    const logEl = document.getElementById('log');
 
-// 拖拽支持
-dropzone.ondragover = e => { e.preventDefault(); dropzone.classList.add('drag'); };
-dropzone.ondragleave = () => dropzone.classList.remove('drag');
-dropzone.ondrop = e => {
-    e.preventDefault();
-    dropzone.classList.remove('drag');
-    fileInput.files = e.dataTransfer.files;
-};
-dropzone.onclick = () => fileInput.click();
+    let selectedFile = null;
+    let busy = false;
 
-async function upload() {
-    const file = fileInput.files[0];
-    if (!file) return alert('请先选择文件');
-    if (!KEY) return alert('缺少 API key：把同目录的 config.example.js 复制为 config.js 并填入你的 key');
+    if (config.apiUrl) apiUrlInput.value = config.apiUrl;
 
-    btn.disabled = true;
-    logEl.innerHTML = '';
-    log(`正在上传: ${file.name}...`, 'info');
-
-    try {
-        // 0. 取第一个工作区的 slug（接口要的是 slug，不是数字 id）
-        const wsRes = await fetch(`${API}/api/v1/workspaces`, {
-            headers: { 'Authorization': `Bearer ${KEY}` }
-        });
-        const wsData = await wsRes.json();
-        const list = wsData.workspaces || [];
-        if (!list.length) throw new Error('服务器上没有任何工作区');
-        const slug = list[0].slug;
-        log(`目标工作区: ${list[0].name} (slug=${slug})`, 'info');
-
-        // 1. 上传文档
-        const form = new FormData();
-        form.append('file', file);
-        const uploadRes = await fetch(`${API}/api/v1/document/upload`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${KEY}` },
-            body: form
-        });
-        const uploadData = await uploadRes.json();
-
-        if (!uploadRes.ok || !uploadData.success) {
-            throw new Error(uploadData.error || uploadData.message || '上传失败');
-        }
-        log(`上传成功!`, 'ok');
-        log(`文档位置: ${JSON.stringify(uploadData.documents)}`, 'info');
-
-        // 2. 向量化嵌入
-        const docLocation = uploadData.documents?.[0]?.location;
-        if (!docLocation) throw new Error('未获取到文档位置');
-
-        log('正在向量化嵌入...', 'info');
-        const embedRes = await fetch(`${API}/api/v1/workspace/${slug}/update-embeddings`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${KEY}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ adds: [docLocation] })
-        });
-        const embedData = await embedRes.json();
-
-        if (!embedRes.ok) {
-            throw new Error(embedData.error || embedData.message || '向量化失败');
-        }
-        log('向量化嵌入完成!', 'ok');
-
-    } catch (e) {
-        log(`错误: ${e.message}`, 'err');
-    } finally {
-        btn.disabled = false;
+    // ---------- 日志 ----------
+    function log(message, kind) {
+        logEl.style.display = 'block';
+        const line = document.createElement('div');
+        if (kind) line.className = kind;
+        line.textContent = message;
+        logEl.appendChild(line);
+        logEl.scrollTop = logEl.scrollHeight;
     }
-}
+
+    function clearLog() {
+        logEl.replaceChildren();
+    }
+
+    // ---------- 界面状态 ----------
+    function setBusy(value) {
+        busy = value;
+        uploadBtn.disabled = value;
+        reloadBtn.disabled = value;
+        uploadBtn.textContent = value ? '处理中…' : '上传并向量化';
+    }
+
+    function hint(message) {
+        fileName.textContent = message;
+    }
+
+    // ---------- 统一请求封装 ----------
+    function baseUrl() {
+        return apiUrlInput.value.trim().replace(/\/+$/, '');
+    }
+
+    async function request(path, options) {
+        const opts = options || {};
+        const headers = Object.assign({}, opts.headers || {});
+        if (config.apiKey) headers['Authorization'] = 'Bearer ' + config.apiKey;
+
+        let response;
+        try {
+            response = await fetch(baseUrl() + path, Object.assign({}, opts, { headers }));
+        } catch (err) {
+            throw new Error('连不上 AnythingLLM,请确认服务地址(默认 http://localhost:3001)且服务已启动');
+        }
+
+        let data = null;
+        try {
+            data = await response.json();
+        } catch (err) {
+            // 非 JSON 响应(例如网关错误页)在下面统一报错
+        }
+        if (!response.ok) {
+            const reason = (data && (data.error || data.message)) || ('HTTP ' + response.status);
+            throw new Error('请求失败:' + reason);
+        }
+        return data || {};
+    }
+
+    // ---------- 工作区 ----------
+    async function loadWorkspaces(auto) {
+        if (!config.apiKey) {
+            if (!auto) log('config.js 里没有 API Key,无法获取工作区列表', 'err');
+            return;
+        }
+        if (!auto) setBusy(true);
+        try {
+            const data = await request('/api/v1/workspaces');
+            const list = Array.isArray(data.workspaces) ? data.workspaces : [];
+            workspaceSelect.replaceChildren();
+            if (!list.length) {
+                const option = new Option('(服务器上没有工作区,请先在 AnythingLLM 里新建)', '');
+                workspaceSelect.appendChild(option);
+                workspaceSelect.disabled = true;
+                isAutoHint(auto, '没有可用的工作区');
+                return;
+            }
+            workspaceSelect.disabled = false;
+            for (const ws of list) {
+                workspaceSelect.appendChild(new Option(ws.name + ' (' + ws.slug + ')', ws.slug));
+            }
+            isAutoHint(auto, '已载入 ' + list.length + ' 个工作区');
+        } catch (err) {
+            workspaceSelect.replaceChildren(new Option('(载入失败)', ''));
+            workspaceSelect.disabled = true;
+            log(err.message, 'err');
+        } finally {
+            if (!auto) setBusy(false);
+        }
+    }
+
+    // 自动载入时只做安静提示,不把“正在处理”状态暴露给界面
+    function isAutoHint(auto, message) {
+        if (!auto) log(message, 'ok');
+    }
+
+    function currentSlug() {
+        return workspaceSelect.value;
+    }
+
+    // ---------- 文件选择 / 拖拽 ----------
+    function chooseFile(file) {
+        if (!file) return;
+        selectedFile = file;
+        hint(file.name + '(' + formatSize(file.size) + ')');
+    }
+
+    function formatSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+    }
+
+    dropzone.addEventListener('click', function () { fileInput.click(); });
+    fileInput.addEventListener('change', function () { chooseFile(fileInput.files[0]); });
+
+    ['dragenter', 'dragover'].forEach(function (type) {
+        dropzone.addEventListener(type, function (event) {
+            event.preventDefault();
+            dropzone.classList.add('dragging');
+        });
+    });
+    ['dragleave', 'drop'].forEach(function (type) {
+        dropzone.addEventListener(type, function (event) {
+            event.preventDefault();
+            dropzone.classList.remove('dragging');
+        });
+    });
+    dropzone.addEventListener('drop', function (event) {
+        const files = event.dataTransfer && event.dataTransfer.files;
+        chooseFile(files && files[0]);
+    });
+
+    // ---------- 上传流程 ----------
+    async function upload() {
+        if (busy) return;
+        if (!selectedFile) return log('请先选择要上传的文件', 'err');
+        const slug = currentSlug();
+        if (!slug) return log('请先选择目标工作区', 'err');
+        if (!config.apiKey) return log('缺少 API Key:请把 config.example.js 复制为 config.js 并填入 Key', 'err');
+
+        clearLog();
+        setBusy(true);
+        try {
+            // 第 1 步:上传文档到 AnythingLLM 的文档库
+            log('① 正在上传 ' + selectedFile.name + ' …', 'info');
+            const form = new FormData();
+            form.append('file', selectedFile);
+            const uploadData = await request('/api/v1/document/upload', { method: 'POST', body: form });
+
+            if (!uploadData.success) {
+                throw new Error('上传失败:' + (uploadData.error || uploadData.message || '服务返回 success=false'));
+            }
+            const documents = Array.isArray(uploadData.documents) ? uploadData.documents : [];
+            const location = documents[0] && documents[0].location;
+            if (!location) throw new Error('上传成功但响应里没有文档 location,无法继续向量化');
+            log('   上传成功,文档位置:' + location, 'ok');
+
+            // 第 2 步:把上传的文档加入目标工作区并做向量化
+            log('② 正在向量化嵌入(文档较多时可能要等一会儿)…', 'info');
+            await request('/api/v1/workspace/' + encodeURIComponent(slug) + '/update-embeddings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ adds: [location] }),
+            });
+            log('   向量化完成,现在可以在 AnythingLLM 中针对该工作区提问了。', 'ok');
+        } catch (err) {
+            log('错误:' + err.message, 'err');
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    uploadBtn.addEventListener('click', upload);
+    reloadBtn.addEventListener('click', function () { loadWorkspaces(false); });
+
+    // 打开页面时若已配置 Key,就静默载入一次工作区列表
+    loadWorkspaces(true);
+    if (!config.apiKey) {
+        log('提示:尚未配置 API Key。复制 config.example.js 为 config.js,填入 Key 后刷新页面。', 'info');
+        setBusy(false);
+    }
+})();
 </script>
 </body>
 </html>

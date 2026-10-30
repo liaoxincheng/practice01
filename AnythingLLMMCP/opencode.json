@@ -6,8 +6,8 @@
       "command": ["python", "server.py"],
       "enabled": true,
       "environment": {
-        "MCP_TRANSPORT": "streamable-http",
-        "MCP_PORT": "8082"
+        "MCP_TRANSPORT": "stdio",
+        "ANYTHINGLLM_API_URL": "http://localhost:3001"
       }
     }
   }
