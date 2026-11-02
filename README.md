@@ -2,7 +2,7 @@
 
 按课程进度组织的作业仓库,一个目录一次任务。
 
-- **PetHospitalMCP** —— 宠爱 AI 病历管理系统:Go 后端存病历,Python MCP 服务器把它包装成工具给 AI 调用。
+- **PetHospitalMCP** —— 宠爱 AI 病历管理系统:`backend/` 是第三方 MIT 许可的 Go 后端(存储病历数据,保留其 LICENSE),`mcp-server/` 是本仓库原创的 Python MCP 服务器,把后端的 REST 接口包装成 5 个工具给 AI 调用。
 - **AnythingLLMMCP** —— 把 AnythingLLM 工作区的检索问答接成 MCP 工具。
 - **AnythingLLMServer** —— 单文件网页上传文档,让 AnythingLLM 完成向量化。
 - **Agent/Practice01** —— `chat.py`:OpenAI SDK 终端对话,流式打字机输出,每轮把全部聊天记录发给模型(聊天历史上下文)。

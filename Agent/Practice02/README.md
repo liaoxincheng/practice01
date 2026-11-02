@@ -12,7 +12,7 @@ Practice02 在 Practice01 的基础上加入 **function calling**:模型除了�
 | `chat.py` | 与完整版内容一致,便于直接 `python chat.py` |
 | `chat-stream-tool-fileOps.mmd` | 完整版的 Mermaid 架构图源文件 |
 | `提示词*.md` | 课程各阶段的原始提示词 |
-| `实测流程.md` | 验证模型确实调用了工具的实测流程 |
+| `实测流程.md` | 验证工具真的被调用的步骤、预期结果与实测记录模板 |
 | `config.example.ini` | 配置模板 |
 
 ## 运行
