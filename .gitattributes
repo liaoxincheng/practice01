@@ -1,0 +1,2 @@
+# 批处理文件统一使用 CRLF 换行:cmd.exe 对 LF-only 的 .bat 解析不可靠
+*.bat text eol=crlf
