@@ -7,7 +7,7 @@
 - **AnythingLLMServer** —— 单文件网页上传文档,让 AnythingLLM 完成向量化。
 - **Agent/Practice01** —— `chat.py`:OpenAI SDK 终端对话,流式打字机输出,每轮把全部聊天记录发给模型(聊天历史上下文)。
 - **Agent/Practice02** —— 流式对话 + function calling,模型自己决定调用工具;按课程推进保留了几个阶段的快照(见下文)。
-- **Agent/xAgent** —— 把 Practice02 改造成 `core` + `tui` 两层:业务逻辑不依赖界面,终端界面用 Textual;工具扩展到 14 个,新增命令行与联网能力。
+- **Agent/xAgent** —— 把 Practice02 改造成 `core` + `tui` 两层:业务逻辑不依赖界面,终端界面用 Textual;工具扩展到 15 个,新增命令行、联网与技能创建能力。
 
 ## 用法
 
@@ -51,7 +51,9 @@ MCP 相关项目(PetHospitalMCP、AnythingLLMMCP、AnythingLLMServer)的用法�
 - `fetchWeb` —— 用 `subprocess` 调本地 `curl` 抓网页 HTML,再用 `trafilatura` 提取正文转 Markdown。保留标题、段落、列表、表格、链接,去掉导航栏、广告、页脚。curl 走参数列表方式,不用 `shell=True`。
 - `searchWeb` —— 调百度千帆 AI 搜索,返回搜索摘要和参考来源的标题、链接。API Key 从 `config.ini` 的 `[search]` 小节读 `baidu_qianfan_api_key`,不在代码里硬编码。
 
-这些工具都把错误转成给模型看的文本,不抛异常打断对话:缺 Key、HTTP 错误、网络不可达、超时、正文提取失败、程序不存在、参数类型不对,各有对应的清晰提示。
+技能(1 个):`createSkill` —— 按用户自然语言要求创建新的 Agent Skill:在 `.agents/skills/<名称>/` 下生成符合 Agent Skills 规范的 `SKILL.md`(YAML Frontmatter 的 name/description + 正文)。名称只允许小写字母、数字和连字符;已存在同名技能时拒绝创建、不覆盖;若技能还需要 `references/`、`scripts/` 等辅助文件,模型继续调用文件工具完成。
+
+这些工具都把错误转成给模型看的文本,不抛异常打断对话:缺 Key、HTTP 错误、网络不可达、超时、正文提取失败、程序不存在、参数类型不对、技能名称不合法或已存在,各有对应的清晰提示。
 
 ## xAgent 的分层
 
@@ -69,9 +71,10 @@ Agent/xAgent/
 │  ├─ file_ops.py    9 个文件工具(安全沙箱)
 │  ├─ time_ops.py    get_date / is_leap_year
 │  ├─ cli_ops.py     RunCli
-│  └─ web_ops.py     fetchWeb / searchWeb
+│  ├─ web_ops.py     fetchWeb / searchWeb
+│  └─ skill_ops.py   createSkill(创建 SKILL.md,拒绝覆盖)
 ├─ tui/           Textual 终端界面,只做显示和输入
-├─ tests/         52 个单元测试(不联网、不需要本地模型)
+├─ tests/         63 个单元测试(不联网、不需要本地模型)
 └─ docs/          界面截图与生成脚本
 ```
 

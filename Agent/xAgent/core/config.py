@@ -69,12 +69,21 @@ class WebOpsConfig:
 
 
 @dataclass(frozen=True)
+class SkillOpsConfig:
+    """技能创建工具(createSkill)的配置。"""
+
+    # 技能目录:createSkill 在这里创建 <名称>/SKILL.md(项目的能力扩展区)
+    skills_dir: Path
+
+
+@dataclass(frozen=True)
 class AppConfig:
     """整个应用的配置(由 load_config 组装)。"""
 
     llm: LLMConfig
     agent: AgentConfig
     file_ops: FileOpsConfig
+    skill_ops: SkillOpsConfig
     cli_ops: CliOpsConfig
     web_ops: WebOpsConfig
 
@@ -114,6 +123,14 @@ def load_config(path: str | Path = "config.ini") -> AppConfig:
         work_dir = (path.parent / work_dir).resolve()
     file_ops = FileOpsConfig(work_dir=work_dir)
 
+    # ---- [skill_ops] 段:技能创建工具(createSkill) ----
+    skills_dir_text = parser.get("skill_ops", "skills_dir", fallback=".agents/skills")
+    skills_dir = Path(skills_dir_text)
+    if not skills_dir.is_absolute():
+        # 与 work_dir 一样,相对路径以配置文件所在目录为基准
+        skills_dir = (path.parent / skills_dir).resolve()
+    skill_ops = SkillOpsConfig(skills_dir=skills_dir)
+
     # ---- [cli_ops] 段:命令行工具(RunCli) ----
     cli_ops = CliOpsConfig(
         timeout_seconds=parser.getfloat("cli_ops", "timeout_seconds", fallback=30.0),
@@ -131,5 +148,10 @@ def load_config(path: str | Path = "config.ini") -> AppConfig:
     )
 
     return AppConfig(
-        llm=llm, agent=agent, file_ops=file_ops, cli_ops=cli_ops, web_ops=web_ops,
+        llm=llm,
+        agent=agent,
+        file_ops=file_ops,
+        skill_ops=skill_ops,
+        cli_ops=cli_ops,
+        web_ops=web_ops,
     )

@@ -69,14 +69,16 @@ class ChatApp(App):
         """界面挂载完成后:输出欢迎语,聚焦输入框。"""
         self.query_one("#log", RichLog).write(
             f"👋 欢迎使用 xAgent!当前模型:{self._agent.model_name}\n"
-            "   共 14 个工具:文件工具(read_file / write_file / edit_file /\n"
+            "   共 15 个工具:文件工具(read_file / write_file / edit_file /\n"
             "   list_dir / get_file_type / create_directory / delete_directory /\n"
             "   delete_file / rename_path)、时间工具(get_date / is_leap_year)、\n"
-            "   命令行工具(RunCli)和联网工具(fetchWeb 抓网页 / searchWeb 搜索),试试:\n"
+            "   命令行工具(RunCli)、联网工具(fetchWeb 抓网页 / searchWeb 搜索)\n"
+            "   和技能工具(createSkill 创建新技能),试试:\n"
             "   · 帮我把\"你好,世界\"写入 hello.txt,再读出来念给我听\n"
             "   · ping 一下 127.0.0.1 看通不通\n"
             "   · 用 fetchWeb 抓取 https://example.com 并总结一下内容\n"
             "   · 用 searchWeb 搜索“2026 年诺贝尔物理学奖得主”(需先在 config.ini 的 [search] 段填写百度千帆 API Key)\n"
+            "   · 帮我创建一个网页搜索技能\n"
         )
         self._set_status("ready")
         self.query_one("#input", Input).focus()

@@ -19,8 +19,9 @@
 | —(新增)命令行工具 RunCli | [core/cli_ops.py](core/cli_ops.py) | 模型可执行本地命令:退出码+stdout+stderr 返回,超时控制、输出截断、shell 注入防护 |
 | —(新增)联网抓取 fetchWeb | [core/web_ops.py](core/web_ops.py) | 模型可抓取网页并提取正文为 Markdown:保留标题/段落/列表/表格/链接,去除导航/广告/页脚 |
 | —(新增)联网搜索 searchWeb | [core/web_ops.py](core/web_ops.py) | 模型可调用百度千帆 AI 搜索 API,返回搜索摘要+来源标题+URL |
+| —(新增)技能创建 createSkill | [core/skill_ops.py](core/skill_ops.py) | 模型按用户自然语言要求,在 `.agents/skills/<名称>/SKILL.md` 创建符合 Agent Skills 规范的新技能:校验名称格式、Frontmatter(name/description)与正文,已存在时拒绝覆盖;辅助文件由模型继续调用文件工具创建 |
 
-> 工具总计 **14 个**:9 个文件工具 + 2 个时间工具 + 1 个命令行工具 + 2 个联网工具。
+> 工具总计 **15 个**:9 个文件工具 + 2 个时间工具 + 1 个命令行工具 + 2 个联网工具 + 1 个技能工具。
 
 ## 二、项目目录结构
 
@@ -45,6 +46,7 @@ xAgent/
 │   ├── cli_ops.py           #   命令行工具:RunCli(执行本地命令,超时/截断/注入防护)
 │   ├── web_ops.py           #   联网工具:fetchWeb(curl 抓网页+trafilatura 提取正文)、
 │   │                        #   searchWeb(百度千帆 AI 搜索)
+│   ├── skill_ops.py         #   技能工具:createSkill(创建符合规范的 SKILL.md,拒绝覆盖)
 │   └── agent.py             #   Agent 编排核心:聊天历史 + 流式对话 + 工具调用循环
 │
 ├── tui/                     # ★ 界面层:只负责显示和输入,不写业务逻辑
@@ -57,6 +59,7 @@ xAgent/
 │   ├── test_extra_ops.py    #   时间工具 + 新增文件工具测试:取时间/闰年/编辑/删除/重命名/沙箱
 │   ├── test_cli_ops.py      #   RunCli 测试:执行/超时/截断/注入防护/schema/Agent 集成
 │   ├── test_web_ops.py      #   fetchWeb/searchWeb 测试:抓取/提取/404/超时/鉴权/schema/Agent 集成
+│   ├── test_skill_ops.py    #   createSkill 测试:创建/名称校验/拒绝覆盖/Frontmatter 规范/Agent 集成
 │   └── test_tui_smoke.py    #   TUI 冒烟测试:Textual 无头模式验证界面挂载与渲染
 │
 └── docs/                    # 文档素材
@@ -149,6 +152,9 @@ max_tool_rounds = 5                   ; 工具调用最大来回数
 [file_ops]
 work_dir = workspace                  ; 模型只能读写这个目录内的文件
 
+[skill_ops]
+skills_dir = .agents/skills           ; createSkill 创建技能的目录(相对项目根)
+
 [web_ops]
 fetch_timeout_seconds = 20            ; fetchWeb 下载单个网页的超时(秒)
 max_content_chars = 6000              ; 网页正文/搜索结果的最大保留字符数(超出截断)
@@ -169,6 +175,7 @@ timeout_seconds = 20                  ; 搜索 API 请求超时(秒)
 - 试试让模型用命令行工具 RunCli:`ping 一下 127.0.0.1 看通不通`、`用 ipconfig 查一下我的 IP 地址`;
 - 试试让模型联网抓网页:`用 fetchWeb 抓取 https://example.com 并总结一下内容`;
 - 试试让模型联网搜索:`用 searchWeb 搜索"2026 年诺贝尔物理学奖得主"`(需先在 config.ini 的 [search] 段填好百度千帆 API Key);
+- 试试让模型创建技能:`帮我创建一个网页搜索技能`,它会在 `.agents/skills/` 下生成符合规范的 `SKILL.md`(同名技能已存在时拒绝创建,不会覆盖);
 - `exit` / `退出` 结束程序,`reset` 清空对话,`Ctrl+Q` 退出,`Ctrl+L` 清屏;
 - 模型写入的文件在工作目录 `workspace/` 里,可以直接打开看。
 
