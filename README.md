@@ -7,7 +7,7 @@
 - **AnythingLLMServer** —— 单文件网页上传文档,让 AnythingLLM 完成向量化。
 - **Agent/Practice01** —— `chat.py`:OpenAI SDK 终端对话,流式打字机输出,每轮把全部聊天记录发给模型(聊天历史上下文)。
 - **Agent/Practice02** —— 流式对话 + function calling,模型自己决定调用工具;按课程推进保留了几个阶段的快照(见下文)。
-- **Agent/xAgent** —— 把 Practice02 改造成 `core` + `tui` 两层:业务逻辑不依赖界面,终端界面用 Textual;内置工具扩展到 15 个(命令行、联网、技能创建),并能把本仓库两个 MCP 服务器的工具(共 7 个)自动接入,全部接入后共 22 个工具。
+- **Agent/xAgent** —— 把 Practice02 改造成 `core` + `tui` 两层:业务逻辑不依赖界面,终端界面用 Textual;内置工具扩展到 15 个(命令行、联网、技能创建),并能把本仓库两个 MCP 服务器的工具(共 7 个)自动接入,全部接入后共 22 个工具;支持项目根目录的 `AGENTS.md` 项目说明(会话开始时注入一次,全程复用)。
 
 ## 用法
 
@@ -27,7 +27,7 @@ xAgent 的 `core/` 不导入 textual 或任何界面框架,将来加 Web / Deskt
 
 xAgent 的联网工具需要在 `config.ini` 的 `[search]` 小节填百度千帆的 API Key,`searchWeb` 才能用;`fetchWeb` 依赖 `trafilatura`,没装会给出安装提示,不影响其余工具。
 
-xAgent 的 `[mcp]` 小节默认接入本仓库的两个 MCP 服务器(宠物医院 `127.0.0.1:8081/mcp`、AnythingLLM `127.0.0.1:8082/mcp`);启动它们后 xAgent 会自动发现并注册工具,没启动时自动跳过,不影响内置工具。详见 [Agent/xAgent/README.md](Agent/xAgent/README.md)。
+xAgent 的 `[mcp]` 小节默认接入本仓库的两个 MCP 服务器(宠物医院 `127.0.0.1:8081/mcp`、AnythingLLM `127.0.0.1:8082/mcp`);启动它们后 xAgent 会自动发现并注册工具,没启动时自动跳过,不影响内置工具。在启动 xAgent 的当前目录放一个 `AGENTS.md`,它的内容会作为第一条 system 消息注入聊天历史,整个会话只注入一次、之后每轮复用。详见 [Agent/xAgent/README.md](Agent/xAgent/README.md)。
 
 MCP 相关项目(PetHospitalMCP、AnythingLLMMCP、AnythingLLMServer)的用法见各自目录内的 README。
 
@@ -77,9 +77,10 @@ Agent/xAgent/
 │  ├─ cli_ops.py     RunCli
 │  ├─ web_ops.py     fetchWeb / searchWeb
 │  ├─ skill_ops.py   createSkill(创建 SKILL.md,拒绝覆盖)
-│  └─ mcp_ops.py     MCP 客户端(发现外部工具并注册、断线跳过)
+│  ├─ mcp_ops.py     MCP 客户端(发现外部工具并注册、断线跳过)
+│  └─ agents_md.py   AGENTS.md 读取与一次性注入
 ├─ tui/           Textual 终端界面,只做显示和输入
-├─ tests/         82 个单元测试(不联网、不需要本地模型)
+├─ tests/         95 个单元测试(不联网、不需要本地模型)
 └─ docs/          界面截图与生成脚本
 ```
 

@@ -21,6 +21,7 @@
 | —(新增)联网搜索 searchWeb | [core/web_ops.py](core/web_ops.py) | 模型可调用百度千帆 AI 搜索 API,返回搜索摘要+来源标题+URL |
 | —(新增)技能创建 createSkill | [core/skill_ops.py](core/skill_ops.py) | 模型按用户自然语言要求,在 `.agents/skills/<名称>/SKILL.md` 创建符合 Agent Skills 规范的新技能:校验名称格式、Frontmatter(name/description)与正文,已存在时拒绝覆盖;辅助文件由模型继续调用文件工具创建 |
 | —(新增)MCP 工具接入 | [core/mcp_ops.py](core/mcp_ops.py) | 启动时连接 config.ini 配好的 MCP 服务器,把对方提供的工具自动注册成 xAgent 的工具(名称加 `mcp_` 前缀);服务器没启动自动跳过,不影响内置工具 |
+| —(新增)AGENTS.md 项目说明 | [core/agents_md.py](core/agents_md.py) | 会话开始时读取项目当前目录的 AGENTS.md,作为一条 system 消息放到聊天历史最前面,之后全程复用(只注入一次,不重复) |
 
 > 内置工具 **15 个**:9 个文件工具 + 2 个时间工具 + 1 个命令行工具 + 2 个联网工具 + 1 个技能工具。
 > 另外还会按 config.ini 的 `[mcp]` 段接入外部 MCP 服务器的工具 —— 课程仓库的宠物医院 MCP(5 个)和 AnythingLLM MCP(2 个)全接入后共 **22 个**工具。
@@ -50,6 +51,7 @@ xAgent/
 │   │                        #   searchWeb(百度千帆 AI 搜索)
 │   ├── skill_ops.py         #   技能工具:createSkill(创建符合规范的 SKILL.md,拒绝覆盖)
 │   ├── mcp_ops.py           #   MCP 客户端:连接外部 MCP 服务器,把其工具注册进 xAgent
+│   ├── agents_md.py         #   读取 AGENTS.md 并生成注入用的 system 消息
 │   └── agent.py             #   Agent 编排核心:聊天历史 + 流式对话 + 工具调用循环
 │
 ├── tui/                     # ★ 界面层:只负责显示和输入,不写业务逻辑
@@ -64,6 +66,7 @@ xAgent/
 │   ├── test_web_ops.py      #   fetchWeb/searchWeb 测试:抓取/提取/404/超时/鉴权/schema/Agent 集成
 │   ├── test_skill_ops.py    #   createSkill 测试:创建/名称校验/拒绝覆盖/Frontmatter 规范/Agent 集成
 │   ├── test_mcp_ops.py      #   MCP 测试:命名消毒/冲突/断线跳过/超时/结果渲染/真实 MCP 端到端
+│   ├── test_agents_md.py    #   AGENTS.md 测试:编码/空文件/只注入一次/多轮复用/reset 重注入
 │   └── test_tui_smoke.py    #   TUI 冒烟测试:Textual 无头模式验证界面挂载与渲染
 │
 └── docs/                    # 文档素材
@@ -187,8 +190,31 @@ timeout_seconds = 30                  ; 连接/调用单个 MCP 工具的超时(
 - 试试让模型联网搜索:`用 searchWeb 搜索"2026 年诺贝尔物理学奖得主"`(需先在 config.ini 的 [search] 段填好百度千帆 API Key);
 - 试试让模型创建技能:`帮我创建一个网页搜索技能`,它会在 `.agents/skills/` 下生成符合规范的 `SKILL.md`(同名技能已存在时拒绝创建,不会覆盖);
 - 试试 MCP 工具(需先启动对应的 MCP 服务器,见下):`宠物医院现在有哪些宠物?`、`查询 workspace 的知识库,问问……`;
+- 在项目当前目录放一个 `AGENTS.md`(项目约定、代码风格、常用命令等),启动后 Agent 会自动遵守(见下);
 - `exit` / `退出` 结束程序,`reset` 清空对话,`Ctrl+Q` 退出,`Ctrl+L` 清屏;
 - 模型写入的文件在工作目录 `workspace/` 里,可以直接打开看。
+
+### AGENTS.md 项目说明(可选)
+
+在**启动 xAgent 时的当前目录**放一个 `AGENTS.md`(项目约定、代码风格、常用命令等),
+xAgent 会在会话开始时把它的内容作为第一条 `system` 消息放进聊天历史,之后每一轮对话都复用它:
+
+- 只注入一次,不会每轮重复,对话再长也不会重复占用上下文;
+- 位置固定在历史最前面,每轮请求的公共前缀完全相同,便于模型服务端做提示词缓存;
+- `reset` 开始新一轮会话时会重新注入;
+- 修改 AGENTS.md 后需要重启 xAgent 才生效。
+
+示例内容:
+
+```markdown
+# 项目约定
+- 所有回答用中文;
+- 写文件前先说明要写到哪个路径;
+- 不要删除 workspace 之外的文件。
+```
+
+注意:读取的是"程序启动时的工作目录"(双击 run.bat 启动时就是 xAgent 目录),
+不是 Python 解释器安装目录,也不是代码存放目录。
 
 ### 接入 MCP 服务器(可选)
 

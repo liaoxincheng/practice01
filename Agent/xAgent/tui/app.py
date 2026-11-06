@@ -71,7 +71,11 @@ class ChatApp(App):
         """界面挂载完成后:输出欢迎语,聚焦输入框。"""
         welcome = (
             f"👋 欢迎使用 xAgent!当前模型:{self._agent.model_name}\n"
-            f"   共 {len(self._agent.tool_names)} 个工具:文件工具(read_file / write_file / edit_file /\n"
+            + (
+                "   已加载项目说明 AGENTS.md(会话开始时注入一次,之后全程复用)\n"
+                if self._agent.has_agents_md else ""
+            )
+            + f"   共 {len(self._agent.tool_names)} 个工具:文件工具(read_file / write_file / edit_file /\n"
             "   list_dir / get_file_type / create_directory / delete_directory /\n"
             "   delete_file / rename_path)、时间工具(get_date / is_leap_year)、\n"
             "   命令行工具(RunCli)、联网工具(fetchWeb 抓网页 / searchWeb 搜索)\n"

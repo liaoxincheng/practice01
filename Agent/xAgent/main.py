@@ -19,6 +19,7 @@ if sys.platform == "win32":
     sys.stderr.reconfigure(encoding="utf-8")
 
 from core.agent import Agent
+from core.agents_md import load_agents_md
 from core.cli_ops import register_cli_ops
 from core.config import load_config
 from core.file_ops import register_file_ops
@@ -70,7 +71,16 @@ def build_agent(config_path: Path) -> tuple[Agent, list[str]]:
         timeout_seconds=config.mcp_ops.timeout_seconds,
     )
 
-    agent = Agent(llm=llm, tools=tools, max_tool_rounds=config.agent.max_tool_rounds)
+    # AGENTS.md:读取"程序启动时的工作目录"(不是代码目录)下的项目说明,
+    # 会话开始时注入聊天历史一次,之后全程复用
+    agents_md = load_agents_md(Path.cwd())
+
+    agent = Agent(
+        llm=llm,
+        tools=tools,
+        max_tool_rounds=config.agent.max_tool_rounds,
+        agents_md=agents_md,
+    )
     return agent, mcp_status
 
 

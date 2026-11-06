@@ -17,6 +17,7 @@ import json
 from typing import AsyncIterator
 
 from . import events
+from .agents_md import build_agents_md_message
 from .llm import LLMClient
 from .tools import ToolRegistry
 
@@ -41,16 +42,21 @@ class Agent:
         llm: LLMClient,
         tools: ToolRegistry,
         max_tool_rounds: int = 5,
+        agents_md: str | None = None,
     ) -> None:
         """
         :param llm: LLM 客户端(依赖注入,方便测试时替换成假实现)
         :param tools: 工具注册中心(依赖注入)
         :param max_tool_rounds: 一轮对话中工具调用的最大来回数
+        :param agents_md: AGENTS.md 的正文;会话开始时作为第一条 system 消息注入,
+            之后一直保留在历史里(一次注入,全程复用)
         """
         self._llm = llm
         self._tools = tools
         self._max_tool_rounds = max_tool_rounds
+        self._agents_md = (agents_md or "").strip()
         self._messages: list[dict] = []  # 聊天历史(OpenAI messages 格式)
+        self._seed_agents_md()
 
     # ---------- 对外只读信息 ----------
 
@@ -65,13 +71,29 @@ class Agent:
         return self._tools.names()
 
     @property
+    def has_agents_md(self) -> bool:
+        """本次会话是否加载了 AGENTS.md(供界面展示)。"""
+        return bool(self._agents_md)
+
+    @property
     def messages(self) -> list[dict]:
         """聊天历史的副本(只读,避免外部误改)。"""
         return list(self._messages)
 
     def reset(self) -> None:
-        """清空聊天历史,开始新一轮对话。"""
+        """清空聊天历史,开始新一轮对话。
+
+        新一轮会话同样会把 AGENTS.md 重新注入到历史最前面。
+        """
         self._messages.clear()
+        self._seed_agents_md()
+
+    # ---------- 内部辅助 ----------
+
+    def _seed_agents_md(self) -> None:
+        """把 AGENTS.md 作为第一条消息放入聊天历史(只做一次)。"""
+        if self._agents_md:
+            self._messages.append(build_agents_md_message(self._agents_md))
 
     # ---------- 对话主流程 ----------
 
