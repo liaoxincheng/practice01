@@ -19,12 +19,17 @@
 | —(新增)命令行工具 RunCli | [core/cli_ops.py](core/cli_ops.py) | 模型可执行本地命令:退出码+stdout+stderr 返回,超时控制、输出截断、shell 注入防护 |
 | —(新增)联网抓取 fetchWeb | [core/web_ops.py](core/web_ops.py) | 模型可抓取网页并提取正文为 Markdown:保留标题/段落/列表/表格/链接,去除导航/广告/页脚 |
 | —(新增)联网搜索 searchWeb | [core/web_ops.py](core/web_ops.py) | 模型可调用百度千帆 AI 搜索 API,返回搜索摘要+来源标题+URL |
-| —(新增)技能创建 createSkill | [core/skill_ops.py](core/skill_ops.py) | 模型按用户自然语言要求,在 `.agents/skills/<名称>/SKILL.md` 创建符合 Agent Skills 规范的新技能:校验名称格式、Frontmatter(name/description)与正文,已存在时拒绝覆盖;辅助文件由模型继续调用文件工具创建 |
-| —(新增)MCP 工具接入 | [core/mcp_ops.py](core/mcp_ops.py) | 启动时连接 config.ini 配好的 MCP 服务器,把对方提供的工具自动注册成 xAgent 的工具(名称加 `mcp_` 前缀);服务器没启动自动跳过,不影响内置工具 |
-| —(新增)AGENTS.md 项目说明 | [core/agents_md.py](core/agents_md.py) | 会话开始时读取项目当前目录的 AGENTS.md,作为一条 system 消息放到聊天历史最前面,之后全程复用(只注入一次,不重复) |
+| —(新增)技能自动发现 + loadSkill | [core/skills_catalog.py](core/skills_catalog.py)、[core/skill_ops.py](core/skill_ops.py) | 启动时扫描 `.agents/skills/*/SKILL.md`,只把名称和简介注入系统提示词;模型需要时用 loadSkill 按需读取全文或 `references/` 附件(带越界保护);createSkill 仍负责按规范创建新技能 |
+| —(新增)工作区外只读 readExternalFile | [core/external_ops.py](core/external_ops.py) | 读取工作目录之外的文件(如桌面上的资料),只读、拒绝二进制与设备路径,UTF-8/GBK 自适应,超长截断并标注 |
+| —(新增)当前位置与完整时间 | [core/file_ops.py](core/file_ops.py)、[core/time_ops.py](core/time_ops.py) | get_current_directory(当前工作目录)、get_current_datetime(本地日期/时间/星期/时区/UTC) |
+| —(新增)MCP 工具接入(config.ini + .mcp.json) | [core/mcp_ops.py](core/mcp_ops.py)、[core/mcp_config.py](core/mcp_config.py) | 在原有 HTTP 基础上新增 stdio 传输、自定义请求头与 `${VAR}` 环境变量展开;`.mcp.json` 与 config.ini 的 `[mcp]` 自动合并,服务器没启动自动跳过 |
+| —(新增)createMcp 配置工具 | [core/mcp_config_ops.py](core/mcp_config_ops.py) | 模型可按自然语言把新 MCP 服务器写进 `.mcp.json`:合并已有配置、保留其他字段、同名需 overwrite、原子写入并回读校验,结果里不泄露密钥 |
+| —(新增)统一系统提示词 | [core/prompts.py](core/prompts.py) | 启动时按"工作区 + 可用技能 + MCP 状态"生成完整规则,作为第一条 system 消息注入;工具用法、安全边界集中维护 |
+| —(新增)TUI 斜杠命令与取消 | [tui/app.py](tui/app.py) | `/help` `/status` `/skills` `/mcp` `/clear` `/quit` 等命令;Esc 取消正在进行的对话并回滚本轮聊天历史 |
+| —(新增)AGENTS.md 项目说明 | [core/agents_md.py](core/agents_md.py) | 会话开始时读取项目当前目录的 AGENTS.md,在系统提示词之后作为又一条 system 消息注入,之后全程复用(只注入一次,不重复) |
 
-> 内置工具 **15 个**:9 个文件工具 + 2 个时间工具 + 1 个命令行工具 + 2 个联网工具 + 1 个技能工具。
-> 另外还会按 config.ini 的 `[mcp]` 段接入外部 MCP 服务器的工具 —— 课程仓库的宠物医院 MCP(5 个)和 AnythingLLM MCP(2 个)全接入后共 **22 个**工具。
+> 内置工具 **20 个**:10 个文件/目录工具 + 3 个时间工具 + 1 个命令行工具 + 2 个联网工具 + 2 个技能工具 + 1 个工作区外只读工具 + 1 个 MCP 配置工具。
+> 另外还会按 config.ini 的 `[mcp]` 段和 `.mcp.json` 接入外部 MCP 服务器的工具 —— 课程仓库的宠物医院 MCP(5 个)和 AnythingLLM MCP(2 个)全接入后共 **27 个**工具。
 
 ## 二、项目目录结构
 
@@ -44,20 +49,29 @@ xAgent/
 │   ├── llm.py               #   LLM 客户端:抽象接口 LLMClient + OpenAI 兼容实现(流式)
 │   ├── tools.py             #   工具注册中心:工具的注册、说明生成、执行
 │   ├── text_utils.py        #   共享小工具:字节解码(UTF-8/GBK 自适应)、输出截断标注
-│   ├── file_ops.py          #   文件操作工具(9 个):read/write/edit/create/delete/rename 等,带安全沙箱
-│   ├── time_ops.py          #   时间工具:get_date(本机命令取时间)、is_leap_year(闰年判断)
+│   ├── file_ops.py          #   文件/目录工具(10 个):read/write/edit/create/delete/rename
+│   │                        #   + get_current_directory,带安全沙箱
+│   ├── time_ops.py          #   时间工具(3 个):get_date、get_current_datetime、is_leap_year
 │   ├── cli_ops.py           #   命令行工具:RunCli(执行本地命令,超时/截断/注入防护)
 │   ├── web_ops.py           #   联网工具:fetchWeb(curl 抓网页+trafilatura 提取正文)、
 │   │                        #   searchWeb(百度千帆 AI 搜索)
-│   ├── skill_ops.py         #   技能工具:createSkill(创建符合规范的 SKILL.md,拒绝覆盖)
-│   ├── mcp_ops.py           #   MCP 客户端:连接外部 MCP 服务器,把其工具注册进 xAgent
+│   ├── skill_ops.py         #   技能工具:createSkill(创建 SKILL.md)+ loadSkill(按需加载)
+│   ├── skills_catalog.py    #   技能自动发现:扫描 SKILL.md 元数据、多根目录去重、按名查询
+│   ├── external_ops.py      #   工作区外只读:readExternalFile(编码识别/二进制拒绝/截断)
+│   ├── mcp_ops.py           #   MCP 客户端:HTTP/stdio 连接外部服务器,把其工具注册进 xAgent
+│   ├── mcp_config.py        #   .mcp.json 解析:传输类型推断、${VAR} 展开、逐服务器报错
+│   ├── mcp_config_ops.py    #   createMcp:把新服务器写进 .mcp.json(合并/冲突保护/原子写)
+│   ├── prompts.py           #   系统提示词:工作区规则 + 技能目录 + MCP 状态
 │   ├── agents_md.py         #   读取 AGENTS.md 并生成注入用的 system 消息
-│   └── agent.py             #   Agent 编排核心:聊天历史 + 流式对话 + 工具调用循环
+│   └── agent.py             #   Agent 编排核心:聊天历史 + 流式对话 + 工具调用循环 + 取消回滚
 │
 ├── tui/                     # ★ 界面层:只负责显示和输入,不写业务逻辑
 │   ├── __init__.py          #   包说明文档
-│   ├── app.py               #   Textual 聊天界面:布局、事件流渲染、快捷键
+│   ├── app.py               #   Textual 聊天界面:布局、事件流渲染、斜杠命令、Esc 取消
 │   └── chat.css             #   界面样式
+│
+├── .agents/skills/          # Agent Skills 目录(每个技能一个子目录 + SKILL.md)
+├── .mcp.json                # 可选:MCP 服务器配置(与 config.ini 的 [mcp] 合并)
 │
 ├── tests/                   # 单元测试(不联网、不需要 LM Studio,使用假 LLM / 本地 HTTP 服务)
 │   ├── test_core.py         #   core 层测试:流式回复、工具调用、错误回滚、路径越界防护
@@ -65,7 +79,10 @@ xAgent/
 │   ├── test_cli_ops.py      #   RunCli 测试:执行/超时/截断/注入防护/schema/Agent 集成
 │   ├── test_web_ops.py      #   fetchWeb/searchWeb 测试:抓取/提取/404/超时/鉴权/schema/Agent 集成
 │   ├── test_skill_ops.py    #   createSkill 测试:创建/名称校验/拒绝覆盖/Frontmatter 规范/Agent 集成
+│   ├── test_skills_catalog.py # 技能发现/loadSkill/系统提示词/取消回滚测试
+│   ├── test_external_ops.py #   readExternalFile 测试:编码/二进制/截断/设备路径/schema
 │   ├── test_mcp_ops.py      #   MCP 测试:命名消毒/冲突/断线跳过/超时/结果渲染/真实 MCP 端到端
+│   ├── test_mcp_config.py   #   .mcp.json 解析/stdio 接入/createMcp 合并与冲突测试
 │   ├── test_agents_md.py    #   AGENTS.md 测试:编码/空文件/只注入一次/多轮复用/reset 重注入
 │   └── test_tui_smoke.py    #   TUI 冒烟测试:Textual 无头模式验证界面挂载与渲染
 │
@@ -161,7 +178,7 @@ max_tool_rounds = 5                   ; 工具调用最大来回数
 work_dir = workspace                  ; 模型只能读写这个目录内的文件
 
 [skill_ops]
-skills_dir = .agents/skills           ; createSkill 创建技能的目录(相对项目根)
+skills_dir = .agents/skills           ; 技能目录:createSkill 创建、loadSkill 读取(相对项目根)
 
 [web_ops]
 fetch_timeout_seconds = 20            ; fetchWeb 下载单个网页的超时(秒)
@@ -180,27 +197,68 @@ servers = pet=http://127.0.0.1:8081/mcp, anythingllm=http://127.0.0.1:8082/mcp
 timeout_seconds = 30                  ; 连接/调用单个 MCP 工具的超时(秒)
 ```
 
+也可以不改 config.ini,而是在启动目录放一个 `.mcp.json`(支持 HTTP 和 stdio 两种服务器,
+可用 `${环境变量}` 引用密钥)。两份配置会自动合并,同名服务器以 config.ini 为准:
+
+```json
+{
+  "mcpServers": {
+    "pet": {
+      "type": "http",
+      "url": "http://127.0.0.1:8081/mcp",
+      "headers": { "Authorization": "Bearer ${PET_TOKEN}" }
+    },
+    "local-tools": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["my_mcp_server.py"],
+      "env": { "TOKEN": "${LOCAL_TOKEN:-dev-token}" },
+      "cwd": "."
+    }
+  }
+}
+```
+
+`.mcp.json` 的 `env` / `headers` 可能包含密钥,仓库的 `.gitignore` 已默认忽略它;
+需要把配置分享给别人时,请用 `${VAR}` 引用环境变量,不要写入真实密钥。
+
 ### 使用
 
-- 输入消息回车发送,AI 流式回复;
-- 试试让模型用文件工具:`帮我把"你好,世界"写入 hello.txt,再读出来念给我听`、`列出目录下有什么文件`、`在 notes.txt 末尾追加一行"备忘"`、`把 hello.txt 重命名为 greet.txt`、`建一个 projects/demo 目录`、`hello.txt 是什么类型的文件`;
-- 试试让模型用时间工具:`现在几点了`、`2024 年是闰年吗`;
+- 输入消息回车发送,AI 流式回复;对话进行中按 **Esc** 可取消,本轮已写入的历史会回滚;
+- 斜杠命令:`/help` 查看命令列表、`/status` 查看模型/工具/技能/MCP 状态、`/skills` 列出技能、`/mcp` 查看 MCP 接入情况、`/clear` 清空对话、`/quit` 退出;
+- 试试让模型用文件工具:`帮我把"你好,世界"写入 hello.txt,再读出来念给我听`、`列出目录下有什么文件`、`在 notes.txt 末尾追加一行"备忘"`、`把 hello.txt 重命名为 greet.txt`、`建一个 projects/demo 目录`、`hello.txt 是什么类型的文件`、`当前工作目录是哪里`;
+- 试试让模型用时间工具:`现在几点了`、`今天星期几`、`2024 年是闰年吗`;
+- 试试让模型读工作区外的文件:`读一下 C:\Users\你的用户名\Desktop\notes.txt 的前 500 个字`(只读,不会修改原文件);
 - 试试让模型用命令行工具 RunCli:`ping 一下 127.0.0.1 看通不通`、`用 ipconfig 查一下我的 IP 地址`;
 - 试试让模型联网抓网页:`用 fetchWeb 抓取 https://example.com 并总结一下内容`;
 - 试试让模型联网搜索:`用 searchWeb 搜索"2026 年诺贝尔物理学奖得主"`(需先在 config.ini 的 [search] 段填好百度千帆 API Key);
+- 试试让模型使用技能:先在 `.agents/skills/<名称>/SKILL.md` 放一个技能(或让模型用 createSkill 创建),再说 `用 web-search 技能帮我查资料`,模型会先调用 loadSkill 读取完整步骤;
 - 试试让模型创建技能:`帮我创建一个网页搜索技能`,它会在 `.agents/skills/` 下生成符合规范的 `SKILL.md`(同名技能已存在时拒绝创建,不会覆盖);
+- 试试让模型配置 MCP:`帮我把这个 MCP 服务器加到 .mcp.json: http://127.0.0.1:9000/mcp,名字叫 demo`,模型会调用 createMcp 写入配置(重启 xAgent 后生效);
 - 试试 MCP 工具(需先启动对应的 MCP 服务器,见下):`宠物医院现在有哪些宠物?`、`查询 workspace 的知识库,问问……`;
 - 在项目当前目录放一个 `AGENTS.md`(项目约定、代码风格、常用命令等),启动后 Agent 会自动遵守(见下);
 - `exit` / `退出` 结束程序,`reset` 清空对话,`Ctrl+Q` 退出,`Ctrl+L` 清屏;
 - 模型写入的文件在工作目录 `workspace/` 里,可以直接打开看。
 
+### 系统提示词
+
+启动时 [core/prompts.py](core/prompts.py) 会根据当前状态生成一份系统提示词,作为聊天历史的
+**第一条 system 消息**注入,内容包括:
+
+- 工作目录和路径安全规则(文件工具只能操作 `work_dir` 内,工作区外只读用 readExternalFile);
+- 全部内置工具的使用场景与注意事项;
+- 当前发现的技能名称和简介(完整内容不注入,需要时用 loadSkill 读);
+- 当前 MCP 服务器的接入状态,以及 `mcp_` 前缀工具的存在说明。
+
+系统提示词只在会话开始时生成一次,`reset` 时重新生成;修改提示词规则需要重启程序。
+
 ### AGENTS.md 项目说明(可选)
 
 在**启动 xAgent 时的当前目录**放一个 `AGENTS.md`(项目约定、代码风格、常用命令等),
-xAgent 会在会话开始时把它的内容作为第一条 `system` 消息放进聊天历史,之后每一轮对话都复用它:
+xAgent 会在会话开始时把它注入聊天历史,位置紧跟在系统提示词之后,之后每一轮对话都复用它:
 
 - 只注入一次,不会每轮重复,对话再长也不会重复占用上下文;
-- 位置固定在历史最前面,每轮请求的公共前缀完全相同,便于模型服务端做提示词缓存;
+- 位置固定在历史最前面(系统提示词之后),每轮请求的公共前缀完全相同,便于模型服务端做提示词缓存;
 - `reset` 开始新一轮会话时会重新注入;
 - 修改 AGENTS.md 后需要重启 xAgent 才生效。
 
@@ -216,10 +274,41 @@ xAgent 会在会话开始时把它的内容作为第一条 `system` 消息放进
 注意:读取的是"程序启动时的工作目录"(双击 run.bat 启动时就是 xAgent 目录),
 不是 Python 解释器安装目录,也不是代码存放目录。
 
+### Agent Skills(技能自动发现与按需加载)
+
+技能放在项目根目录的 `.agents/skills/<技能名>/SKILL.md`,格式为 YAML Frontmatter
+(`name`、`description`)+ 正文,还可以在技能目录里放 `references/`、`scripts/` 等附件。
+
+xAgent 启动时会扫描多个位置(启动目录、工作区目录、xAgent 项目根下的
+`.agents/skills/`,以及 `config.ini` 里 `skills_dir` 指定的目录),
+但**只把每个技能的 name 和 description 放进系统提示词**:
+
+- 简介不匹配当前任务时,技能正文完全不占用上下文;
+- 需要用到技能时,模型调用 `loadSkill` 读取 SKILL.md 全文;
+- 读取附件时传 `filename`(如 `references/guide.md`),工具只允许读技能目录内部的文件;
+- 同名文件有多个时返回候选路径让模型再选;文件支持 UTF-8 / GBK,超长会截断;
+- 新增技能后需要重启 xAgent 才会出现在可用列表中(技能目录和系统提示词都在启动时生成)。
+
+`createSkill` 负责按规范创建 SKILL.md(名称只允许小写字母、数字、连字符,同名拒绝覆盖);
+如果技能还需要辅助文件,模型会继续调用文件工具创建。
+
 ### 接入 MCP 服务器(可选)
 
 xAgent 启动时会读取 config.ini 的 `[mcp]` 段,自动连接这些 MCP 服务器,
 把它们的工具注册进来(工具名统一加 `mcp_<服务器名>_` 前缀,和内置工具区分开)。
+
+同时还会读取启动目录的 `.mcp.json`,把两份配置合并(同名服务器保留 config.ini 的版本,
+并在欢迎语里提示 `.mcp.json` 中的重复项)。`.mcp.json` 支持:
+
+- HTTP 服务器:`{"url": "...", "headers": {...}}`;
+- stdio 服务器:`{"command": "python", "args": ["server.py"], "env": {...}, "cwd": "."}`;
+- 省略 `type` 时自动推断(`command` → stdio,`url` → http);
+- 字符串中可用 `${VAR}` 或 `${VAR:-默认值}` 引用环境变量,密钥不必写死在文件里;
+- 某个服务器配置有误只跳过它,其他服务器继续加载,问题会显示在欢迎语和 `/mcp` 中。
+
+也可以直接让模型写配置(需重启生效):`帮我把 http://127.0.0.1:9000/mcp 加进 .mcp.json,
+名字叫 demo`。模型会调用 `createMcp`,工具会校验配置、合并已有服务器、保留文件里的其他字段,
+同名服务器默认拒绝写入(除非明确要求覆盖),并使用原子写入 + 回读校验;返回结果不会显示密钥值。
 课程仓库里有两个现成的 MCP 服务器,先启动它们(各开一个终端,保持运行):
 
 ```bash
@@ -249,6 +338,10 @@ AnythingLLM 的工具需要 AnythingLLM 服务(`127.0.0.1:3001`)在运行。
 ```bash
 venv\Scripts\python -m unittest discover -s tests -v
 ```
+
+当前共 **138 个测试**,覆盖核心对话/工具调用、文件沙箱、命令行、联网、技能发现与加载、
+工作区外只读、MCP(config.ini / `.mcp.json` / stdio / createMcp)、AGENTS.md、系统提示词、
+取消回滚和 TUI 冒烟;全部使用假 LLM 或本地临时服务,不联网、不需要启动 LM Studio。
 
 ### 生成界面截图(用于作业报告)
 

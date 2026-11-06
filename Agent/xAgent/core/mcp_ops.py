@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+from contextlib import asynccontextmanager
 from typing import Any, Callable
 
 from .tools import Tool, ToolRegistry
@@ -31,14 +33,56 @@ DISCOVERY_TIMEOUT_SECONDS = 10.0
 
 
 def _make_default_factory():
-    """创建默认的 MCP 客户端工厂;未安装 mcp 包时返回 None。"""
+    """创建默认的 HTTP MCP 客户端工厂;未安装 mcp 包时返回 None。
+
+    工厂签名是 ``(server, timeout) -> 客户端``。服务器配置了 headers 时,
+    用自定义 httpx 客户端把请求头带进去;没有 headers 时直接连 URL。
+    """
     try:
         from mcp import Client
+        from mcp.client.streamable_http import (
+            create_mcp_http_client,
+            streamable_http_client,
+        )
     except ImportError:
         return None
 
-    def factory(url: str, timeout_seconds: float):
-        return Client(url, read_timeout_seconds=timeout_seconds)
+    def factory(server: Any, timeout_seconds: float):
+        if not server.headers:
+            return Client(server.url, read_timeout_seconds=timeout_seconds)
+
+        @asynccontextmanager
+        async def transport():
+            async with create_mcp_http_client(
+                headers=dict(server.headers)
+            ) as http_client:
+                async with streamable_http_client(
+                    server.url, http_client=http_client
+                ) as streams:
+                    yield streams
+
+        return Client(transport(), read_timeout_seconds=timeout_seconds)
+
+    return factory
+
+
+def _make_default_stdio_factory():
+    """创建默认的 stdio MCP 客户端工厂;未安装 mcp 包时返回 None。"""
+    try:
+        from mcp import Client, StdioServerParameters
+    except ImportError:
+        return None
+
+    def factory(server: Any, timeout_seconds: float):
+        # 自定义 env 时与当前环境合并,保证 PATH 等基础变量仍然可用
+        env = {**os.environ, **dict(server.env)} if server.env else None
+        parameters = StdioServerParameters(
+            command=server.command,
+            args=list(server.args),
+            env=env,
+            cwd=server.cwd or None,
+        )
+        return Client(parameters, read_timeout_seconds=timeout_seconds)
 
     return factory
 
@@ -101,11 +145,11 @@ def _render_result(result: Any) -> tuple[str, bool]:
     return ("\n".join(parts), bool(getattr(result, "is_error", False)))
 
 
-async def _discover(client_factory, url: str, timeout_seconds: float) -> list[Any]:
+async def _discover(connector, timeout_seconds: float) -> list[Any]:
     """连接 MCP 服务器并列出它的全部工具(整体限时,防止启动卡死)。"""
 
     async def _go() -> list[Any]:
-        async with client_factory(url, timeout_seconds) as client:
+        async with connector(timeout_seconds) as client:
             result = await client.list_tools()
             return list(getattr(result, "tools", None) or [])
 
@@ -115,8 +159,7 @@ async def _discover(client_factory, url: str, timeout_seconds: float) -> list[An
 
 
 def _make_handler(
-    client_factory: Callable[[str, float], Any],
-    url: str,
+    connector: Callable[[float], Any],
     tool_name: str,
     timeout_seconds: float,
 ):
@@ -128,7 +171,7 @@ def _make_handler(
 
     async def _call(**kwargs: Any) -> str:
         async def _go() -> Any:
-            async with client_factory(url, timeout_seconds) as client:
+            async with connector(timeout_seconds) as client:
                 return await client.call_tool(tool_name, kwargs)
 
         result = await asyncio.wait_for(_go(), timeout=timeout_seconds)
@@ -146,32 +189,69 @@ def register_mcp_ops(
     *,
     timeout_seconds: float = 30.0,
     client_factory: Callable[[str, float], Any] | None = None,
+    stdio_client_factory: Callable[[Any, float], Any] | None = None,
 ) -> list[str]:
     """把配置里的 MCP 服务器逐个接入工具注册中心,返回状态说明列表。
 
     :param registry: 工具注册中心(接入的工具注册到这里)
-    :param servers: McpServerConfig 列表(来自配置的 [mcp] 段)
+    :param servers: McpServerConfig 列表(来自 config.ini 的 [mcp] 段和 .mcp.json)
     :param timeout_seconds: 连接 / 调用的超时秒数
-    :param client_factory: 测试时注入的假客户端工厂(url, timeout) -> 客户端对象
+    :param client_factory: 测试时注入的 HTTP 假客户端工厂
+        ``(url, timeout) -> 客户端对象``
+    :param stdio_client_factory: 测试时注入的 stdio 假客户端工厂
+        ``(server, timeout) -> 客户端对象``
     :return: 每个服务器的接入状态说明(如 "服务器 pet: 已接入 5 个工具"),
              供界面启动时展示给用户
     """
     if not servers:
         return []
 
+    injected_http_factory = client_factory is not None
     if client_factory is None:
         client_factory = _make_default_factory()
-        if client_factory is None:
-            return ["未安装 mcp 包,已跳过 MCP 工具接入(可执行 pip install mcp 安装)"]
+    if stdio_client_factory is None:
+        stdio_client_factory = _make_default_stdio_factory()
 
     statuses: list[str] = []
     used_names = set(registry.names())
     for server in servers:
+        transport = getattr(server, "transport", "http") or "http"
+        if transport == "stdio":
+            if stdio_client_factory is None:
+                statuses.append(
+                    f"服务器 {server.name}: 未安装 mcp 包,已跳过"
+                    "(可执行 pip install mcp 安装)"
+                )
+                continue
+
+            def connector(
+                timeout: float,
+                _server=server,
+                _factory=stdio_client_factory,
+            ):
+                return _factory(_server, timeout)
+        else:
+            if client_factory is None:
+                statuses.append(
+                    f"服务器 {server.name}: 未安装 mcp 包,已跳过"
+                    "(可执行 pip install mcp 安装)"
+                )
+                continue
+
+            def connector(
+                timeout: float,
+                _server=server,
+                _factory=client_factory,
+                _injected=injected_http_factory,
+            ):
+                # 注入的测试工厂沿用历史签名 (url, timeout);默认工厂用 (server, timeout)
+                if _injected:
+                    return _factory(_server.url, timeout)
+                return _factory(_server, timeout)
+
         # 发现工具(连不上就跳过这一台,不影响其他服务器和内置工具)
         try:
-            remote_tools = asyncio.run(
-                _discover(client_factory, server.url, timeout_seconds)
-            )
+            remote_tools = asyncio.run(_discover(connector, timeout_seconds))
         except Exception as exc:  # noqa: BLE001 —— 单台服务器失败不影响整体
             reason = str(_root_cause(exc)) or exc.__class__.__name__
             if len(reason) > 80:
@@ -198,7 +278,7 @@ def register_mcp_ops(
                     ),
                     parameters=schema,
                     handler=_make_handler(
-                        client_factory, server.url, remote_name, timeout_seconds
+                        connector, remote_name, timeout_seconds
                     ),
                 )
             )

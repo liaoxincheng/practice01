@@ -13,6 +13,7 @@ UI 层(现在是 tui/,未来可以是 web/、desktop/)只需:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import AsyncIterator
 
@@ -43,20 +44,30 @@ class Agent:
         tools: ToolRegistry,
         max_tool_rounds: int = 5,
         agents_md: str | None = None,
+        system_prompt: str | None = None,
+        skill_names: tuple[str, ...] | list[str] = (),
+        skill_issues: tuple[str, ...] | list[str] = (),
     ) -> None:
         """
         :param llm: LLM 客户端(依赖注入,方便测试时替换成假实现)
         :param tools: 工具注册中心(依赖注入)
         :param max_tool_rounds: 一轮对话中工具调用的最大来回数
-        :param agents_md: AGENTS.md 的正文;会话开始时作为第一条 system 消息注入,
+        :param agents_md: AGENTS.md 的正文;会话开始时作为一条 system 消息注入,
             之后一直保留在历史里(一次注入,全程复用)
+        :param system_prompt: 系统提示词(工作区规则 + 技能清单 + MCP 状态),
+            会话开始时注入一次;为 None 时不注入
+        :param skill_names: 启动时发现的技能名称(仅供界面展示)
+        :param skill_issues: 技能扫描时的问题(仅供界面展示)
         """
         self._llm = llm
         self._tools = tools
         self._max_tool_rounds = max_tool_rounds
         self._agents_md = (agents_md or "").strip()
+        self._system_prompt = (system_prompt or "").strip()
+        self._skill_names = tuple(skill_names)
+        self._skill_issues = tuple(skill_issues)
         self._messages: list[dict] = []  # 聊天历史(OpenAI messages 格式)
-        self._seed_agents_md()
+        self._seed_session_messages()
 
     # ---------- 对外只读信息 ----------
 
@@ -76,6 +87,21 @@ class Agent:
         return bool(self._agents_md)
 
     @property
+    def has_system_prompt(self) -> bool:
+        """本次会话是否注入了系统提示词(供界面展示)。"""
+        return bool(self._system_prompt)
+
+    @property
+    def skill_names(self) -> tuple[str, ...]:
+        """启动时发现的技能名称(供界面展示)。"""
+        return self._skill_names
+
+    @property
+    def skill_issues(self) -> tuple[str, ...]:
+        """技能扫描时的问题(供界面展示)。"""
+        return self._skill_issues
+
+    @property
     def messages(self) -> list[dict]:
         """聊天历史的副本(只读,避免外部误改)。"""
         return list(self._messages)
@@ -83,15 +109,19 @@ class Agent:
     def reset(self) -> None:
         """清空聊天历史,开始新一轮对话。
 
-        新一轮会话同样会把 AGENTS.md 重新注入到历史最前面。
+        新一轮会话同样会重新注入系统提示词和 AGENTS.md。
         """
         self._messages.clear()
-        self._seed_agents_md()
+        self._seed_session_messages()
 
     # ---------- 内部辅助 ----------
 
-    def _seed_agents_md(self) -> None:
-        """把 AGENTS.md 作为第一条消息放入聊天历史(只做一次)。"""
+    def _seed_session_messages(self) -> None:
+        """在会话开始时注入系统提示词和 AGENTS.md(各只做一次)。"""
+        if self._system_prompt:
+            self._messages.append(
+                {"role": "system", "content": self._system_prompt}
+            )
         if self._agents_md:
             self._messages.append(build_agents_md_message(self._agents_md))
 
@@ -191,6 +221,10 @@ class Agent:
                     "请尝试把需求描述得更具体一些。"
                 )
             )
+        except asyncio.CancelledError:
+            # 用户取消(如按 Esc):同样回滚本轮消息,避免留下半截对话
+            del self._messages[snapshot:]
+            raise
         except Exception as exc:
             # 出错回滚:丢弃本轮产生的所有消息,对话可以继续
             del self._messages[snapshot:]

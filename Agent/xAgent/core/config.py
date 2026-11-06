@@ -11,7 +11,7 @@ core 层只依赖标准库,不依赖任何第三方 UI 库。
 from __future__ import annotations
 
 import configparser
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -78,10 +78,37 @@ class SkillOpsConfig:
 
 @dataclass(frozen=True)
 class McpServerConfig:
-    """一个 MCP 服务器的连接配置。"""
+    """一个 MCP 服务器的连接配置。
+
+    支持两种传输方式:
+    - http(config.ini 的 [mcp] 段或 .mcp.json 的 url):使用 url / headers;
+    - stdio(.mcp.json 的 command):使用 command / args / env / cwd。
+
+    env 和 headers 里可能包含密钥,所以 __repr__ 只显示端点,不显示具体值。
+    """
 
     name: str  # 服务器名(用于工具名前缀和状态展示),如 "pet"
-    url: str   # MCP 服务地址,如 "http://127.0.0.1:8081/mcp"
+    url: str = ""  # MCP 服务地址,如 "http://127.0.0.1:8081/mcp"
+    transport: str = "http"  # "http" 或 "stdio"
+    command: str = ""  # stdio:要启动的可执行程序
+    args: tuple[str, ...] = ()  # stdio:程序参数
+    env: dict[str, str] = field(default_factory=dict)  # stdio:额外的环境变量
+    cwd: str = ""  # stdio:子进程工作目录
+    headers: dict[str, str] = field(default_factory=dict)  # http:请求头
+
+    @property
+    def endpoint(self) -> str:
+        """用于状态展示的简短连接描述(不含密钥)。"""
+        if self.transport == "stdio":
+            parts = [self.command, *self.args]
+            return " ".join(part for part in parts if part)
+        return self.url
+
+    def __repr__(self) -> str:
+        return (
+            f"McpServerConfig(name={self.name!r}, transport={self.transport!r}, "
+            f"endpoint={self.endpoint!r})"
+        )
 
 
 @dataclass(frozen=True)

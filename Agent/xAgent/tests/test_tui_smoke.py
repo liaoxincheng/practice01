@@ -112,6 +112,60 @@ class TuiSmokeTest(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertTrue(app._exit)
 
+    async def test_help_command_lists_slash_commands(self):
+        """/help 直接在界面显示命令列表,不发给模型。"""
+        agent = Agent(llm=FakeLLM([]), tools=ToolRegistry())
+        app = ChatApp(agent=agent)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            input_widget = pilot.app.query_one("#input", Input)
+            input_widget.value = "/help"
+            await pilot.press("enter")
+            await pilot.pause()
+            text = log_text(pilot.app)
+            self.assertIn("可用命令", text)
+            self.assertIn("/status", text)
+            self.assertIn("/skills", text)
+            self.assertIn("/mcp", text)
+            self.assertFalse(input_widget.disabled)
+
+    async def test_skills_are_shown_in_welcome_and_command(self):
+        """启动时发现的技能会出现在欢迎语和 /skills 输出里。"""
+        agent = Agent(
+            llm=FakeLLM([]),
+            tools=ToolRegistry(),
+            skill_names=["web-search", "pdf-reader"],
+        )
+        app = ChatApp(agent=agent)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            text = log_text(pilot.app)
+            self.assertIn("已发现 2 个技能", text)
+            self.assertIn("web-search", text)
+
+            input_widget = pilot.app.query_one("#input", Input)
+            input_widget.value = "/skills"
+            await pilot.press("enter")
+            await pilot.pause()
+            text = log_text(pilot.app)
+            self.assertIn("已发现 2 个技能", text)
+            self.assertIn("pdf-reader", text)
+
+    async def test_unknown_slash_command_gets_hint(self):
+        """未知斜杠命令不发给模型,只提示查看 /help。"""
+        agent = Agent(llm=FakeLLM([]), tools=ToolRegistry())
+        app = ChatApp(agent=agent)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            input_widget = pilot.app.query_one("#input", Input)
+            input_widget.value = "/nope"
+            await pilot.press("enter")
+            await pilot.pause()
+            text = log_text(pilot.app)
+            self.assertIn("未知命令", text)
+            self.assertIn("/help", text)
+            self.assertFalse(input_widget.disabled)
+
     async def test_tool_call_is_rendered(self):
         """模型调用工具时,界面渲染出"调用工具 / 工具结果"提示。"""
         from core.tools import Tool

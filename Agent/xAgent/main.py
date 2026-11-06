@@ -22,10 +22,15 @@ from core.agent import Agent
 from core.agents_md import load_agents_md
 from core.cli_ops import register_cli_ops
 from core.config import load_config
+from core.external_ops import register_external_ops
 from core.file_ops import register_file_ops
 from core.llm import OpenAILLMClient
+from core.mcp_config import CONFIG_FILENAME, load_mcp_json
+from core.mcp_config_ops import register_mcp_config_ops
 from core.mcp_ops import register_mcp_ops
+from core.prompts import build_system_prompt
 from core.skill_ops import register_skill_ops
+from core.skills_catalog import SkillsCatalog
 from core.time_ops import register_time_ops
 from core.tools import ToolRegistry
 from core.web_ops import register_web_ops
@@ -50,7 +55,17 @@ def build_agent(config_path: Path) -> tuple[Agent, list[str]]:
     tools = ToolRegistry()
     register_file_ops(tools, work_dir=config.file_ops.work_dir)
     register_time_ops(tools)
-    register_skill_ops(tools, skills_dir=config.skill_ops.skills_dir)
+
+    # 技能自动发现:启动目录 → 工作区 → xAgent 自带目录 → 配置里的技能目录。
+    # 这里只读 Frontmatter(名称 + 简介),正文留给 loadSkill 按需加载。
+    catalog = SkillsCatalog.discover(
+        [Path.cwd(), config.file_ops.work_dir, PROJECT_ROOT],
+        skill_dirs=[config.skill_ops.skills_dir],
+    )
+    register_skill_ops(
+        tools, skills_dir=config.skill_ops.skills_dir, catalog=catalog
+    )
+    register_external_ops(tools)
     register_cli_ops(
         tools,
         timeout_seconds=config.cli_ops.timeout_seconds,
@@ -65,10 +80,36 @@ def build_agent(config_path: Path) -> tuple[Agent, list[str]]:
         search_top_k=config.web_ops.search_top_k,
         search_timeout_seconds=config.web_ops.search_timeout_seconds,
     )
-    mcp_status = register_mcp_ops(
+
+    # MCP:config.ini 的 [mcp] 段(HTTP)+ 启动目录下的 .mcp.json(stdio / HTTP)。
+    # 同名服务器以 config.ini 为准,.mcp.json 中的重复项跳过并提示。
+    mcp_config_path = Path.cwd() / CONFIG_FILENAME
+    mcp_json_servers, mcp_issues = load_mcp_json(mcp_config_path)
+    mcp_servers = list(config.mcp_ops.servers)
+    seen_servers = {server.name.casefold() for server in mcp_servers}
+    for server in mcp_json_servers:
+        if server.name.casefold() in seen_servers:
+            mcp_issues.append(
+                f"MCP 服务器 {server.name}:与 config.ini 中的同名服务器重复,"
+                "已跳过 .mcp.json 中的配置"
+            )
+            continue
+        mcp_servers.append(server)
+        seen_servers.add(server.name.casefold())
+
+    mcp_status = list(mcp_issues)
+    mcp_status += register_mcp_ops(
         tools,
-        servers=config.mcp_ops.servers,
+        servers=mcp_servers,
         timeout_seconds=config.mcp_ops.timeout_seconds,
+    )
+    register_mcp_config_ops(tools, mcp_config_path)
+
+    # 系统提示词:工作区规则 + 技能清单 + MCP 接入状态,会话开始时注入一次
+    system_prompt = build_system_prompt(
+        workspace=config.file_ops.work_dir,
+        skills=catalog.skills,
+        mcp_status=mcp_status,
     )
 
     # AGENTS.md:读取"程序启动时的工作目录"(不是代码目录)下的项目说明,
@@ -80,6 +121,9 @@ def build_agent(config_path: Path) -> tuple[Agent, list[str]]:
         tools=tools,
         max_tool_rounds=config.agent.max_tool_rounds,
         agents_md=agents_md,
+        system_prompt=system_prompt,
+        skill_names=[skill.name for skill in catalog.skills],
+        skill_issues=list(catalog.issues),
     )
     return agent, mcp_status
 

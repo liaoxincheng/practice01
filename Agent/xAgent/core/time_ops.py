@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from .tools import Tool, ToolRegistry
 
@@ -62,6 +62,29 @@ def register_time_ops(registry: ToolRegistry) -> None:
         except (ValueError, TypeError):
             return f"错误:format 不是合法的 strftime 格式:{format!r}"
 
+    def get_current_datetime() -> str:
+        """返回本地日期、时间、星期、时区和 UTC 时间。"""
+        local = datetime.now().astimezone()
+        utc = local.astimezone(timezone.utc)
+        offset = local.utcoffset() or timedelta(0)
+        total_minutes = int(offset.total_seconds() / 60)
+        sign = "+" if total_minutes >= 0 else "-"
+        hours, minutes = divmod(abs(total_minutes), 60)
+        offset_text = f"UTC{sign}{hours:02d}:{minutes:02d}"
+        tz_name = local.tzname() or "本地时区"
+        weekdays = (
+            "星期一", "星期二", "星期三", "星期四",
+            "星期五", "星期六", "星期日",
+        )
+        return (
+            f"当前系统日期时间:{local.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"日期:{local.strftime('%Y-%m-%d')}\n"
+            f"时间:{local.strftime('%H:%M:%S')}\n"
+            f"星期:{weekdays[local.weekday()]}\n"
+            f"时区:{tz_name} ({offset_text})\n"
+            f"UTC 时间:{utc.strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+
     def is_leap_year(year: int = 0) -> str:
         """判断某年是否闰年;不传年份(0)时用本机当前年份。
 
@@ -96,6 +119,18 @@ def register_time_ops(registry: ToolRegistry) -> None:
                 },
             },
             handler=get_date,
+        )
+    )
+    registry.register(
+        Tool(
+            name="get_current_datetime",
+            description=(
+                "获取当前系统日期、时间、星期和时区(直接读取系统时间)。"
+                "当用户询问今天、现在、今年、星期几或当前日期时间时,"
+                "应先调用此工具,不要凭记忆回答。"
+            ),
+            parameters={"type": "object", "properties": {}},
+            handler=get_current_datetime,
         )
     )
     registry.register(

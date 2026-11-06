@@ -22,7 +22,9 @@ from textual.widgets import Input  # noqa: E402
 from core import events  # noqa: E402
 from core.agent import Agent  # noqa: E402
 from core.cli_ops import register_cli_ops  # noqa: E402
+from core.external_ops import register_external_ops  # noqa: E402
 from core.file_ops import register_file_ops  # noqa: E402
+from core.mcp_config_ops import register_mcp_config_ops  # noqa: E402
 from core.skill_ops import register_skill_ops  # noqa: E402
 from core.time_ops import register_time_ops  # noqa: E402
 from core.tools import ToolRegistry  # noqa: E402
@@ -40,8 +42,10 @@ async def main() -> None:
     register_file_ops(tools, work_dir=PROJECT_ROOT / "workspace")
     register_time_ops(tools)
     register_skill_ops(tools, skills_dir=PROJECT_ROOT / ".agents" / "skills")
+    register_external_ops(tools)
     register_cli_ops(tools, timeout_seconds=30.0, max_output_chars=4000)
     register_web_ops(tools)
+    register_mcp_config_ops(tools, PROJECT_ROOT / ".mcp.json")
 
     # 三回合剧本:写文件 → 读文件 → 总结回答
     agent = Agent(

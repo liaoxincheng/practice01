@@ -204,7 +204,12 @@ def register_file_ops(registry: ToolRegistry, work_dir: Path) -> Path:
         except Exception as exc:
             return f"错误:重命名失败:{exc}"
 
-    # ---- 工具 9:列目录 ----
+    # ---- 工具 9:获取当前工作目录 ----
+    def get_current_directory() -> str:
+        """返回文件工具的工作区绝对路径。"""
+        return f"当前工作目录:{work_dir}"
+
+    # ---- 工具 10:列目录 ----
     def list_dir(path: str = ".") -> str:
         """列出目录下的文件和文件夹(标出类型)。"""
         try:
@@ -229,6 +234,14 @@ def register_file_ops(registry: ToolRegistry, work_dir: Path) -> Path:
             return f"错误:列出失败:{exc}"
 
     # ---- 注册进工具注册中心(模型能看到的只有 name/description/parameters) ----
+    registry.register(
+        Tool(
+            name="get_current_directory",
+            description="获取当前工作目录(文件工具的工作区)的绝对路径",
+            parameters={"type": "object", "properties": {}},
+            handler=get_current_directory,
+        )
+    )
     registry.register(
         Tool(
             name="read_file",
