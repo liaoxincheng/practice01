@@ -21,8 +21,12 @@ from textual.widgets import Input  # noqa: E402
 
 from core import events  # noqa: E402
 from core.agent import Agent  # noqa: E402
+from core.cli_ops import register_cli_ops  # noqa: E402
 from core.file_ops import register_file_ops  # noqa: E402
+from core.skill_ops import register_skill_ops  # noqa: E402
+from core.time_ops import register_time_ops  # noqa: E402
 from core.tools import ToolRegistry  # noqa: E402
+from core.web_ops import register_web_ops  # noqa: E402
 from tests.test_core import FakeLLM  # noqa: E402
 from tui.app import ChatApp  # noqa: E402
 
@@ -30,9 +34,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 async def main() -> None:
-    # 注册真实的文件工具(与 main.py 相同的组装方式),让演示里工具真的执行成功
+    # 注册全部内置工具(与 main.py 相同的组装方式),让欢迎语的工具数一致;
+    # 演示对话只用到文件工具,但其余工具也注册好,截图才和真实启动一样
     tools = ToolRegistry()
     register_file_ops(tools, work_dir=PROJECT_ROOT / "workspace")
+    register_time_ops(tools)
+    register_skill_ops(tools, skills_dir=PROJECT_ROOT / ".agents" / "skills")
+    register_cli_ops(tools, timeout_seconds=30.0, max_output_chars=4000)
+    register_web_ops(tools)
 
     # 三回合剧本:写文件 → 读文件 → 总结回答
     agent = Agent(

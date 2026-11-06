@@ -77,6 +77,24 @@ class SkillOpsConfig:
 
 
 @dataclass(frozen=True)
+class McpServerConfig:
+    """一个 MCP 服务器的连接配置。"""
+
+    name: str  # 服务器名(用于工具名前缀和状态展示),如 "pet"
+    url: str   # MCP 服务地址,如 "http://127.0.0.1:8081/mcp"
+
+
+@dataclass(frozen=True)
+class McpOpsConfig:
+    """MCP 工具接入([mcp] 段)的配置。"""
+
+    # 要接入的服务器列表(留空 = 不接入 MCP)
+    servers: tuple[McpServerConfig, ...] = ()
+    # 连接 / 调用单个 MCP 工具的超时(秒)
+    timeout_seconds: float = 30.0
+
+
+@dataclass(frozen=True)
 class AppConfig:
     """整个应用的配置(由 load_config 组装)。"""
 
@@ -86,6 +104,7 @@ class AppConfig:
     skill_ops: SkillOpsConfig
     cli_ops: CliOpsConfig
     web_ops: WebOpsConfig
+    mcp_ops: McpOpsConfig
 
 
 def load_config(path: str | Path = "config.ini") -> AppConfig:
@@ -147,6 +166,22 @@ def load_config(path: str | Path = "config.ini") -> AppConfig:
         search_timeout_seconds=parser.getfloat("search", "timeout_seconds", fallback=20.0),
     )
 
+    # ---- [mcp] 段:MCP 服务器接入 ----
+    # servers 格式:名称=地址,名称=地址(逗号分隔);单条格式不对就跳过这条
+    mcp_servers: list[McpServerConfig] = []
+    for item in parser.get("mcp", "servers", fallback="").split(","):
+        item = item.strip()
+        if not item or "=" not in item:
+            continue
+        name, url = item.split("=", 1)
+        name, url = name.strip(), url.strip()
+        if name and url:
+            mcp_servers.append(McpServerConfig(name=name, url=url))
+    mcp_ops = McpOpsConfig(
+        servers=tuple(mcp_servers),
+        timeout_seconds=parser.getfloat("mcp", "timeout_seconds", fallback=30.0),
+    )
+
     return AppConfig(
         llm=llm,
         agent=agent,
@@ -154,4 +189,5 @@ def load_config(path: str | Path = "config.ini") -> AppConfig:
         skill_ops=skill_ops,
         cli_ops=cli_ops,
         web_ops=web_ops,
+        mcp_ops=mcp_ops,
     )

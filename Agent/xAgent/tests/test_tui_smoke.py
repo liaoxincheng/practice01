@@ -68,6 +68,20 @@ class TuiSmokeTest(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(pilot.app.query_one("#status"))
             self.assertIn("fake-model", log_text(pilot.app))
 
+    async def test_mcp_status_is_shown_in_welcome(self):
+        """传入 MCP 接入状态时,欢迎语里展示每台服务器的结果。"""
+        agent = Agent(llm=FakeLLM([]), tools=ToolRegistry())
+        app = ChatApp(agent=agent, mcp_status=[
+            "服务器 pet: 已接入 5 个工具(mcp_pet_list_pets)",
+            "服务器 anythingllm: 连接失败,已跳过(All connection attempts failed)",
+        ])
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            text = log_text(pilot.app)
+            self.assertIn("MCP 服务器接入情况", text)
+            self.assertIn("服务器 pet: 已接入 5 个工具", text)
+            self.assertIn("连接失败,已跳过", text)
+
     async def test_send_message_renders_stream_reply(self):
         """输入消息回车:用户消息和模型流式回复都渲染到聊天记录。"""
         app = self.make_app()

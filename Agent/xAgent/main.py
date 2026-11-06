@@ -23,6 +23,7 @@ from core.cli_ops import register_cli_ops
 from core.config import load_config
 from core.file_ops import register_file_ops
 from core.llm import OpenAILLMClient
+from core.mcp_ops import register_mcp_ops
 from core.skill_ops import register_skill_ops
 from core.time_ops import register_time_ops
 from core.tools import ToolRegistry
@@ -33,10 +34,13 @@ from tui.app import ChatApp
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
-def build_agent(config_path: Path) -> Agent:
+def build_agent(config_path: Path) -> tuple[Agent, list[str]]:
     """组装 core 组件(依赖注入):
 
-    配置 → LLM 客户端 → 工具注册中心(注册文件工具)→ Agent
+    配置 → LLM 客户端 → 工具注册中心(注册内置工具 + MCP 工具)→ Agent
+
+    返回 (Agent, MCP 接入状态列表):状态供界面启动时展示
+    (哪台 MCP 服务器接入了几个工具、哪台连不上被跳过)。
     """
     config = load_config(config_path)
 
@@ -60,14 +64,20 @@ def build_agent(config_path: Path) -> Agent:
         search_top_k=config.web_ops.search_top_k,
         search_timeout_seconds=config.web_ops.search_timeout_seconds,
     )
+    mcp_status = register_mcp_ops(
+        tools,
+        servers=config.mcp_ops.servers,
+        timeout_seconds=config.mcp_ops.timeout_seconds,
+    )
 
-    return Agent(llm=llm, tools=tools, max_tool_rounds=config.agent.max_tool_rounds)
+    agent = Agent(llm=llm, tools=tools, max_tool_rounds=config.agent.max_tool_rounds)
+    return agent, mcp_status
 
 
 def main() -> None:
     """程序入口:组装 core,启动 Textual 界面。"""
-    agent = build_agent(PROJECT_ROOT / "config.ini")
-    ChatApp(agent=agent).run()
+    agent, mcp_status = build_agent(PROJECT_ROOT / "config.ini")
+    ChatApp(agent=agent, mcp_status=mcp_status).run()
 
 
 if __name__ == "__main__":

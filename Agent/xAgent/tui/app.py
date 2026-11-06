@@ -37,10 +37,12 @@ class ChatApp(App):
         ("ctrl+l", "clear_screen", "清屏"),
     ]
 
-    def __init__(self, agent: Agent) -> None:
+    def __init__(self, agent: Agent, mcp_status: list[str] | None = None) -> None:
         super().__init__()
         # 依赖注入:界面只依赖 core 的 Agent 抽象,不关心其内部构造
         self._agent = agent
+        # MCP 服务器接入状态(启动欢迎语里展示,没有接入就是空列表)
+        self._mcp_status = list(mcp_status or [])
         self._streaming = ""  # 当前正在流式输出的文本缓冲区
 
     # ---------- 界面布局 ----------
@@ -67,9 +69,9 @@ class ChatApp(App):
 
     def on_mount(self) -> None:
         """界面挂载完成后:输出欢迎语,聚焦输入框。"""
-        self.query_one("#log", RichLog).write(
+        welcome = (
             f"👋 欢迎使用 xAgent!当前模型:{self._agent.model_name}\n"
-            "   共 15 个工具:文件工具(read_file / write_file / edit_file /\n"
+            f"   共 {len(self._agent.tool_names)} 个工具:文件工具(read_file / write_file / edit_file /\n"
             "   list_dir / get_file_type / create_directory / delete_directory /\n"
             "   delete_file / rename_path)、时间工具(get_date / is_leap_year)、\n"
             "   命令行工具(RunCli)、联网工具(fetchWeb 抓网页 / searchWeb 搜索)\n"
@@ -80,6 +82,14 @@ class ChatApp(App):
             "   · 用 searchWeb 搜索“2026 年诺贝尔物理学奖得主”(需先在 config.ini 的 [search] 段填写百度千帆 API Key)\n"
             "   · 帮我创建一个网页搜索技能\n"
         )
+        if self._mcp_status:
+            welcome += "   MCP 服务器接入情况:\n"
+            welcome += "".join(f"   · {status}\n" for status in self._mcp_status)
+            welcome += (
+                "   · 用 mcp_ 开头的工具问问 MCP 服务器吧"
+                "(服务器没启动的话它们会报连接失败)\n"
+            )
+        self.query_one("#log", RichLog).write(welcome)
         self._set_status("ready")
         self.query_one("#input", Input).focus()
 

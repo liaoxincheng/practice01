@@ -7,7 +7,7 @@
 - **AnythingLLMServer** —— 单文件网页上传文档,让 AnythingLLM 完成向量化。
 - **Agent/Practice01** —— `chat.py`:OpenAI SDK 终端对话,流式打字机输出,每轮把全部聊天记录发给模型(聊天历史上下文)。
 - **Agent/Practice02** —— 流式对话 + function calling,模型自己决定调用工具;按课程推进保留了几个阶段的快照(见下文)。
-- **Agent/xAgent** —— 把 Practice02 改造成 `core` + `tui` 两层:业务逻辑不依赖界面,终端界面用 Textual;工具扩展到 15 个,新增命令行、联网与技能创建能力。
+- **Agent/xAgent** —— 把 Practice02 改造成 `core` + `tui` 两层:业务逻辑不依赖界面,终端界面用 Textual;内置工具扩展到 15 个(命令行、联网、技能创建),并能把本仓库两个 MCP 服务器的工具(共 7 个)自动接入,全部接入后共 22 个工具。
 
 ## 用法
 
@@ -26,6 +26,8 @@ python main.py        # 或双击 run.bat(自动建虚拟环境、装依赖、�
 xAgent 的 `core/` 不导入 textual 或任何界面框架,将来加 Web / Desktop 版只需再写一个界面层。
 
 xAgent 的联网工具需要在 `config.ini` 的 `[search]` 小节填百度千帆的 API Key,`searchWeb` 才能用;`fetchWeb` 依赖 `trafilatura`,没装会给出安装提示,不影响其余工具。
+
+xAgent 的 `[mcp]` 小节默认接入本仓库的两个 MCP 服务器(宠物医院 `127.0.0.1:8081/mcp`、AnythingLLM `127.0.0.1:8082/mcp`);启动它们后 xAgent 会自动发现并注册工具,没启动时自动跳过,不影响内置工具。详见 [Agent/xAgent/README.md](Agent/xAgent/README.md)。
 
 MCP 相关项目(PetHospitalMCP、AnythingLLMMCP、AnythingLLMServer)的用法见各自目录内的 README。
 
@@ -53,6 +55,8 @@ MCP 相关项目(PetHospitalMCP、AnythingLLMMCP、AnythingLLMServer)的用法�
 
 技能(1 个):`createSkill` —— 按用户自然语言要求创建新的 Agent Skill:在 `.agents/skills/<名称>/` 下生成符合 Agent Skills 规范的 `SKILL.md`(YAML Frontmatter 的 name/description + 正文)。名称只允许小写字母、数字和连字符;已存在同名技能时拒绝创建、不覆盖;若技能还需要 `references/`、`scripts/` 等辅助文件,模型继续调用文件工具完成。
 
+MCP 接入(动态):启动时连接 `config.ini` 的 `[mcp]` 段配置的 MCP 服务器,把对方工具注册成 `mcp_<服务器>_<工具>`(如 `mcp_pet_list_pets`)。宠物医院 MCP 提供 5 个,AnythingLLM MCP 提供 2 个;服务器没启动时自动跳过并在欢迎语中说明原因。MCP 只是"发现 + 调用"的客户端逻辑,和内置工具走同一套 ToolRegistry,Agent 核心无需任何改动。
+
 这些工具都把错误转成给模型看的文本,不抛异常打断对话:缺 Key、HTTP 错误、网络不可达、超时、正文提取失败、程序不存在、参数类型不对、技能名称不合法或已存在,各有对应的清晰提示。
 
 ## xAgent 的分层
@@ -72,9 +76,10 @@ Agent/xAgent/
 │  ├─ time_ops.py    get_date / is_leap_year
 │  ├─ cli_ops.py     RunCli
 │  ├─ web_ops.py     fetchWeb / searchWeb
-│  └─ skill_ops.py   createSkill(创建 SKILL.md,拒绝覆盖)
+│  ├─ skill_ops.py   createSkill(创建 SKILL.md,拒绝覆盖)
+│  └─ mcp_ops.py     MCP 客户端(发现外部工具并注册、断线跳过)
 ├─ tui/           Textual 终端界面,只做显示和输入
-├─ tests/         63 个单元测试(不联网、不需要本地模型)
+├─ tests/         82 个单元测试(不联网、不需要本地模型)
 └─ docs/          界面截图与生成脚本
 ```
 

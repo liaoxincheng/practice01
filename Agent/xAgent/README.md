@@ -20,8 +20,10 @@
 | —(新增)联网抓取 fetchWeb | [core/web_ops.py](core/web_ops.py) | 模型可抓取网页并提取正文为 Markdown:保留标题/段落/列表/表格/链接,去除导航/广告/页脚 |
 | —(新增)联网搜索 searchWeb | [core/web_ops.py](core/web_ops.py) | 模型可调用百度千帆 AI 搜索 API,返回搜索摘要+来源标题+URL |
 | —(新增)技能创建 createSkill | [core/skill_ops.py](core/skill_ops.py) | 模型按用户自然语言要求,在 `.agents/skills/<名称>/SKILL.md` 创建符合 Agent Skills 规范的新技能:校验名称格式、Frontmatter(name/description)与正文,已存在时拒绝覆盖;辅助文件由模型继续调用文件工具创建 |
+| —(新增)MCP 工具接入 | [core/mcp_ops.py](core/mcp_ops.py) | 启动时连接 config.ini 配好的 MCP 服务器,把对方提供的工具自动注册成 xAgent 的工具(名称加 `mcp_` 前缀);服务器没启动自动跳过,不影响内置工具 |
 
-> 工具总计 **15 个**:9 个文件工具 + 2 个时间工具 + 1 个命令行工具 + 2 个联网工具 + 1 个技能工具。
+> 内置工具 **15 个**:9 个文件工具 + 2 个时间工具 + 1 个命令行工具 + 2 个联网工具 + 1 个技能工具。
+> 另外还会按 config.ini 的 `[mcp]` 段接入外部 MCP 服务器的工具 —— 课程仓库的宠物医院 MCP(5 个)和 AnythingLLM MCP(2 个)全接入后共 **22 个**工具。
 
 ## 二、项目目录结构
 
@@ -30,7 +32,7 @@ xAgent/
 ├── main.py                  # 程序入口:组装 core 组件(依赖注入),启动 TUI
 ├── run.bat                  # Windows 一键启动(自动建虚拟环境、装依赖、启动)
 ├── config.ini               # 配置文件(模型/工具参数/千帆 API Key;含密钥不入库)
-├── requirements.txt         # 依赖清单(openai、textual、httpx、trafilatura)
+├── requirements.txt         # 依赖清单(openai、textual、httpx、trafilatura、mcp)
 ├── .gitignore               # 排除 venv、config.ini、workspace
 ├── README.md                # 本文档
 │
@@ -47,6 +49,7 @@ xAgent/
 │   ├── web_ops.py           #   联网工具:fetchWeb(curl 抓网页+trafilatura 提取正文)、
 │   │                        #   searchWeb(百度千帆 AI 搜索)
 │   ├── skill_ops.py         #   技能工具:createSkill(创建符合规范的 SKILL.md,拒绝覆盖)
+│   ├── mcp_ops.py           #   MCP 客户端:连接外部 MCP 服务器,把其工具注册进 xAgent
 │   └── agent.py             #   Agent 编排核心:聊天历史 + 流式对话 + 工具调用循环
 │
 ├── tui/                     # ★ 界面层:只负责显示和输入,不写业务逻辑
@@ -60,6 +63,7 @@ xAgent/
 │   ├── test_cli_ops.py      #   RunCli 测试:执行/超时/截断/注入防护/schema/Agent 集成
 │   ├── test_web_ops.py      #   fetchWeb/searchWeb 测试:抓取/提取/404/超时/鉴权/schema/Agent 集成
 │   ├── test_skill_ops.py    #   createSkill 测试:创建/名称校验/拒绝覆盖/Frontmatter 规范/Agent 集成
+│   ├── test_mcp_ops.py      #   MCP 测试:命名消毒/冲突/断线跳过/超时/结果渲染/真实 MCP 端到端
 │   └── test_tui_smoke.py    #   TUI 冒烟测试:Textual 无头模式验证界面挂载与渲染
 │
 └── docs/                    # 文档素材
@@ -118,6 +122,7 @@ xAgent/
 - LM Studio 本地运行中,已加载模型并启动服务器(默认 http://127.0.0.1:1234)
 - fetchWeb 需要系统自带 curl(Windows 10/11 已自带,无需额外安装)
 - searchWeb(可选)需要百度千帆 API Key,填入 config.ini 的 [search] 段(不填也不影响其他功能)
+- MCP 服务器(可选):宠物医院 MCP / AnythingLLM MCP 没启动时,xAgent 启动会多等几秒并自动跳过,不影响内置工具
 
 ### 方式一:一键启动(推荐)
 
@@ -165,6 +170,11 @@ max_content_chars = 6000              ; 网页正文/搜索结果的最大保留
 baidu_qianfan_api_key =
 top_k = 10                            ; 每次搜索返回的条数
 timeout_seconds = 20                  ; 搜索 API 请求超时(秒)
+
+[mcp]
+; 要接入的 MCP 服务器:名称=地址, 名称=地址(逗号分隔;整行删掉=不接入 MCP)
+servers = pet=http://127.0.0.1:8081/mcp, anythingllm=http://127.0.0.1:8082/mcp
+timeout_seconds = 30                  ; 连接/调用单个 MCP 工具的超时(秒)
 ```
 
 ### 使用
@@ -176,8 +186,37 @@ timeout_seconds = 20                  ; 搜索 API 请求超时(秒)
 - 试试让模型联网抓网页:`用 fetchWeb 抓取 https://example.com 并总结一下内容`;
 - 试试让模型联网搜索:`用 searchWeb 搜索"2026 年诺贝尔物理学奖得主"`(需先在 config.ini 的 [search] 段填好百度千帆 API Key);
 - 试试让模型创建技能:`帮我创建一个网页搜索技能`,它会在 `.agents/skills/` 下生成符合规范的 `SKILL.md`(同名技能已存在时拒绝创建,不会覆盖);
+- 试试 MCP 工具(需先启动对应的 MCP 服务器,见下):`宠物医院现在有哪些宠物?`、`查询 workspace 的知识库,问问……`;
 - `exit` / `退出` 结束程序,`reset` 清空对话,`Ctrl+Q` 退出,`Ctrl+L` 清屏;
 - 模型写入的文件在工作目录 `workspace/` 里,可以直接打开看。
+
+### 接入 MCP 服务器(可选)
+
+xAgent 启动时会读取 config.ini 的 `[mcp]` 段,自动连接这些 MCP 服务器,
+把它们的工具注册进来(工具名统一加 `mcp_<服务器名>_` 前缀,和内置工具区分开)。
+课程仓库里有两个现成的 MCP 服务器,先启动它们(各开一个终端,保持运行):
+
+```bash
+# 宠物医院 MCP(端口 8081,5 个工具:list_pets / create_pet / get_pet / add_record / followup_summary)
+cd practice01/PetHospitalMCP/mcp-server
+../../AnythingLLMMCP/.venv/Scripts/python.exe server.py
+
+# AnythingLLM MCP(端口 8082,2 个工具:list_workspaces / query_workspace)
+cd practice01/AnythingLLMMCP
+.venv/Scripts/python.exe server.py
+```
+
+再启动 xAgent,欢迎语里会显示每台服务器的接入结果,例如:
+
+```text
+MCP 服务器接入情况:
+· 服务器 pet: 已接入 5 个工具(mcp_pet_list_pets, mcp_pet_create_pet, ...)
+· 服务器 anythingllm: 已接入 2 个工具(mcp_anythingllm_list_workspaces, ...)
+```
+
+注意:宠物医院的工具还需要它自己的数据后端(`127.0.0.1:8080`)在运行;
+AnythingLLM 的工具需要 AnythingLLM 服务(`127.0.0.1:3001`)在运行。
+没启动也没关系 —— MCP 调用会返回一段错误说明,模型会如实告诉你,不会让程序崩溃。
 
 ### 运行测试
 

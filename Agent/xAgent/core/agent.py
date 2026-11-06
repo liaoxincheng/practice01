@@ -60,6 +60,11 @@ class Agent:
         return self._llm.model_name
 
     @property
+    def tool_names(self) -> list[str]:
+        """当前注册的全部工具名(供界面展示工具数量和 MCP 接入情况)。"""
+        return self._tools.names()
+
+    @property
     def messages(self) -> list[dict]:
         """聊天历史的副本(只读,避免外部误改)。"""
         return list(self._messages)

@@ -3,3 +3,4 @@ openai>=1.30      # 调用大模型(OpenAI 兼容接口,LM Studio / Ollama 均�
 textual>=0.80     # TUI 终端界面库
 httpx>=0.27       # searchWeb 工具:请求百度千帆搜索 API
 trafilatura>=1.8  # fetchWeb 工具:网页正文提取并转为 Markdown
+mcp>=2.0.0        # MCP 客户端:把外部 MCP 服务器(宠物医院 / AnythingLLM)接入成工具
