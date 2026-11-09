@@ -2,9 +2,23 @@
 
 按课程进度组织的作业仓库,一个目录一次任务。
 
+## 评分清单对照
+
+| 评分项 | 目录 | 入口 / 运行方式 | 自动化测试 |
+| --- | --- | --- | --- |
+| 1. 宠物医院 MCP | [PetHospitalMCP/](PetHospitalMCP/) | `mcp-server/server.py`(默认 HTTP 端口 8081);后端 `backend/` 端口 8080 | `mcp-server` 下 11 个测试通过 |
+| 2. AnythingLLM MCP | [AnythingLLMMCP/](AnythingLLMMCP/) | `server.py`(默认 HTTP 端口 8082) | 8 个测试通过 |
+| 3. AnythingLLMWebpage | [AnythingLLMWebpage/](AnythingLLMWebpage/) | `python -m http.server 8000` 后打开 `upload.html` | JS 语法检查通过;需浏览器手工操作 |
+| 4. 我的 Agent | [Agent/xAgent/](Agent/xAgent/) | `python main.py` 或双击 `run.bat` | 170 个测试通过 |
+
+四个项目均已上传到本仓库;各项目的依赖、配置和启动细节见对应目录的 README。
+`config.ini` / `config.js` / `.mcp.json` 等含密钥的本地配置已被 `.gitignore` 排除,仓库里只保留 `*.example.*` 模板。
+
+## 项目一览
+
 - **PetHospitalMCP** —— 宠爱 AI 病历管理系统:`backend/` 是第三方 MIT 许可的 Go 后端(存储病历数据,保留其 LICENSE),`mcp-server/` 是本仓库原创的 Python MCP 服务器,把后端的 REST 接口包装成 5 个工具给 AI 调用。
 - **AnythingLLMMCP** —— 把 AnythingLLM 工作区的检索问答接成 MCP 工具。
-- **AnythingLLMServer** —— 单文件网页上传文档,让 AnythingLLM 完成向量化。
+- **AnythingLLMWebpage** —— 单文件网页上传文档,让 AnythingLLM 完成向量化(原目录名 AnythingLLMServer)。
 - **Agent/Practice01** —— `chat.py`:OpenAI SDK 终端对话,流式打字机输出,每轮把全部聊天记录发给模型(聊天历史上下文)。
 - **Agent/Practice02** —— 流式对话 + function calling,模型自己决定调用工具;按课程推进保留了几个阶段的快照(见下文)。
 - **Agent/xAgent** —— 把 Practice02 改造成 `core` + `tui` 两层:业务逻辑不依赖界面,终端界面用 Textual;内置工具扩展到 21 个(命令行、联网、技能发现与创建、工作区外只读、MCP 配置、上下文归档检索),并能把本仓库两个 MCP 服务器的工具(共 7 个)自动接入,全部接入后共 28 个工具;支持 Agent Skills 自动发现/按需加载、`.mcp.json`(HTTP + stdio)、统一系统提示词、`AGENTS.md` 项目说明(会话开始时注入一次,全程复用)、上下文压缩与会话归档(`/compact` 先归档再摘要、`recallContext` 检索旧细节、`/save` `/resume` 保存恢复),以及缺失 `config.ini` 时自动生成并弹窗提醒。
@@ -29,7 +43,7 @@ xAgent 的联网工具需要在 `config.ini` 的 `[search]` 小节填百度千�
 
 xAgent 的 `[mcp]` 小节默认接入本仓库的两个 MCP 服务器(宠物医院 `127.0.0.1:8081/mcp`、AnythingLLM `127.0.0.1:8082/mcp`);启动它们后 xAgent 会自动发现并注册工具,没启动时自动跳过,不影响内置工具。也可以在启动目录放 `.mcp.json` 配置 HTTP / stdio MCP 服务器(支持 `${VAR}` 环境变量),或让模型调用 `createMcp` 写入。在启动 xAgent 的当前目录放一个 `AGENTS.md`,它的内容会在系统提示词之后注入聊天历史,整个会话只注入一次、之后每轮复用。对话太长时用 `/compact` 把旧消息压缩成摘要(压缩前自动归档完整历史),需要旧细节时模型用 `recallContext` 检索归档;`/save` `/sessions` `/resume` 负责手动保存与恢复会话。详见 [Agent/xAgent/README.md](Agent/xAgent/README.md)。
 
-MCP 相关项目(PetHospitalMCP、AnythingLLMMCP、AnythingLLMServer)的用法见各自目录内的 README。
+MCP 相关项目(PetHospitalMCP、AnythingLLMMCP、AnythingLLMWebpage)的用法见各自目录内的 README。
 
 ## Agent/Practice02 的文件
 

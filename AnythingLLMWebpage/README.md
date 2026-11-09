@@ -1,7 +1,10 @@
-# AnythingLLMServer — 网页上传文档到 AnythingLLM
+# AnythingLLMWebpage — 网页上传文档到 AnythingLLM
 
 一个单页网页工具:在浏览器里选择 / 拖入本地文档,调用 AnythingLLM 的 HTTP API 完成
 **上传 → 加入工作区 → 向量化** 两步操作,之后就能在 AnythingLLM 里针对该工作区检索问答。
+
+> 课程评分清单里这一项叫 **AnythingLLMWebpage**;本目录原名 `AnythingLLMServer`,
+> 为与评分清单保持一致已改名,功能与文件不变。
 
 ## 文件说明
 
