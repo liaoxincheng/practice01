@@ -46,7 +46,10 @@ def build_system_prompt(
 11. 当用户要求接入、新增或修改 MCP Server 时,调用 createMcp 把配置写入
     启动目录下的 .mcp.json;密钥建议写成 ${{ENV_VAR}}。createMcp 不会回显
     env / headers 的具体值,写入后要告诉用户重启 xAgent 才生效。
-12. 用中文回答,简洁说明执行结果;可以汇总多个工具的结果。
+12. 如果上下文里出现“[历史对话摘要]”,说明更早的对话已被压缩归档;
+    需要旧细节(用户以前的要求、文件路径、命令或结论)时,先调用 recallContext
+    按关键字检索归档,不要只根据摘要猜测。
+13. 用中文回答,简洁说明执行结果;可以汇总多个工具的结果。
 {skill_section}{mcp_section}"""
 
 

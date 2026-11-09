@@ -40,15 +40,25 @@ def _try_decode(data: bytes) -> str | None:
     return None
 
 
-def register_file_ops(registry: ToolRegistry, work_dir: Path) -> Path:
-    """把三个文件工具注册进 registry,并确保工作目录存在。
+def register_file_ops(
+    registry: ToolRegistry,
+    work_dir: Path,
+    *,
+    max_read_chars: int = MAX_READ_CHARS,
+    max_list_entries: int = MAX_LIST_ENTRIES,
+) -> Path:
+    """把文件工具注册进 registry,并确保工作目录存在。
 
     :param registry: 目标工具注册中心
     :param work_dir: 工作目录(所有文件操作都限制在这个目录内)
+    :param max_read_chars: read_file 单次返回的最大字符数
+    :param max_list_entries: list_dir 最多列出的条目数
     :return: 解析后的工作目录绝对路径
     """
     work_dir = work_dir.resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
+    max_read_chars = max(100, int(max_read_chars))
+    max_list_entries = max(1, int(max_list_entries))
 
     # ---- 安全校验:把模型给的路径解析到工作目录内 ----
     def _resolve(path: str) -> Path:
@@ -72,9 +82,9 @@ def register_file_ops(registry: ToolRegistry, work_dir: Path) -> Path:
             if not target.is_file():
                 return f"错误:文件不存在:{path}"
             content = target.read_text(encoding="utf-8")
-            if len(content) > MAX_READ_CHARS:
+            if len(content) > max_read_chars:
                 return (
-                    content[:MAX_READ_CHARS]
+                    content[:max_read_chars]
                     + f"\n...(文件太长,已截断,共 {len(content)} 字符)"
                 )
             return content
@@ -221,11 +231,11 @@ def register_file_ops(registry: ToolRegistry, work_dir: Path) -> Path:
                 return "目录是空的"
             lines = [
                 f"- [目录] {p.name}/" if p.is_dir() else f"- [文件] {p.name}"
-                for p in entries[:MAX_LIST_ENTRIES]
+                for p in entries[:max_list_entries]
             ]
-            if len(entries) > MAX_LIST_ENTRIES:
+            if len(entries) > max_list_entries:
                 lines.append(
-                    f"...(共 {len(entries)} 项,只显示前 {MAX_LIST_ENTRIES} 项)"
+                    f"...(共 {len(entries)} 项,只显示前 {max_list_entries} 项)"
                 )
             return "目录内容:\n" + "\n".join(lines)
         except FileOpsError as exc:
@@ -245,7 +255,10 @@ def register_file_ops(registry: ToolRegistry, work_dir: Path) -> Path:
     registry.register(
         Tool(
             name="read_file",
-            description="读取工作目录中的一个文本文件,返回文件内容(最多 20000 字符)",
+            description=(
+                "读取工作目录中的一个文本文件,返回文件内容"
+                f"(最多 {max_read_chars} 字符)"
+            ),
             parameters={
                 "type": "object",
                 "properties": {

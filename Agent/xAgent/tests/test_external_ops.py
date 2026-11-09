@@ -59,6 +59,22 @@ class TestReadExternalFile(unittest.TestCase):
         self.assertIn("共 100 个", result)
         self.assertIn("a" * 10, result)
 
+    def test_configured_output_limit_cannot_be_exceeded(self):
+        """工具参数只能把返回上限调小,不能突破配置的上限。"""
+        tools = ToolRegistry()
+        register_external_ops(tools, max_output_chars=100)
+        target = self.root / "long.txt"
+        target.write_text("b" * 200, encoding="utf-8")
+
+        result = asyncio.run(
+            tools.execute(
+                "readExternalFile",
+                json.dumps({"path": str(target), "max_chars": 1000},
+                           ensure_ascii=False),
+            )
+        )
+        self.assertIn("仅显示前 100 个字符", result)
+
     def test_missing_file(self):
         result = self.execute({"path": str(self.root / "missing.txt")})
         self.assertIn("不存在", result)

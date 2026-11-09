@@ -7,7 +7,7 @@
 - **AnythingLLMServer** —— 单文件网页上传文档,让 AnythingLLM 完成向量化。
 - **Agent/Practice01** —— `chat.py`:OpenAI SDK 终端对话,流式打字机输出,每轮把全部聊天记录发给模型(聊天历史上下文)。
 - **Agent/Practice02** —— 流式对话 + function calling,模型自己决定调用工具;按课程推进保留了几个阶段的快照(见下文)。
-- **Agent/xAgent** —— 把 Practice02 改造成 `core` + `tui` 两层:业务逻辑不依赖界面,终端界面用 Textual;内置工具扩展到 20 个(命令行、联网、技能发现与创建、工作区外只读、MCP 配置),并能把本仓库两个 MCP 服务器的工具(共 7 个)自动接入,全部接入后共 27 个工具;支持 Agent Skills 自动发现/按需加载、`.mcp.json`(HTTP + stdio)、统一系统提示词,以及项目根目录的 `AGENTS.md` 项目说明(会话开始时注入一次,全程复用)。
+- **Agent/xAgent** —— 把 Practice02 改造成 `core` + `tui` 两层:业务逻辑不依赖界面,终端界面用 Textual;内置工具扩展到 21 个(命令行、联网、技能发现与创建、工作区外只读、MCP 配置、上下文归档检索),并能把本仓库两个 MCP 服务器的工具(共 7 个)自动接入,全部接入后共 28 个工具;支持 Agent Skills 自动发现/按需加载、`.mcp.json`(HTTP + stdio)、统一系统提示词、`AGENTS.md` 项目说明(会话开始时注入一次,全程复用)、上下文压缩与会话归档(`/compact` 先归档再摘要、`recallContext` 检索旧细节、`/save` `/resume` 保存恢复),以及缺失 `config.ini` 时自动生成并弹窗提醒。
 
 ## 用法
 
@@ -27,7 +27,7 @@ xAgent 的 `core/` 不导入 textual 或任何界面框架,将来加 Web / Deskt
 
 xAgent 的联网工具需要在 `config.ini` 的 `[search]` 小节填百度千帆的 API Key,`searchWeb` 才能用;`fetchWeb` 依赖 `trafilatura`,没装会给出安装提示,不影响其余工具。
 
-xAgent 的 `[mcp]` 小节默认接入本仓库的两个 MCP 服务器(宠物医院 `127.0.0.1:8081/mcp`、AnythingLLM `127.0.0.1:8082/mcp`);启动它们后 xAgent 会自动发现并注册工具,没启动时自动跳过,不影响内置工具。也可以在启动目录放 `.mcp.json` 配置 HTTP / stdio MCP 服务器(支持 `${VAR}` 环境变量),或让模型调用 `createMcp` 写入。在启动 xAgent 的当前目录放一个 `AGENTS.md`,它的内容会在系统提示词之后注入聊天历史,整个会话只注入一次、之后每轮复用。详见 [Agent/xAgent/README.md](Agent/xAgent/README.md)。
+xAgent 的 `[mcp]` 小节默认接入本仓库的两个 MCP 服务器(宠物医院 `127.0.0.1:8081/mcp`、AnythingLLM `127.0.0.1:8082/mcp`);启动它们后 xAgent 会自动发现并注册工具,没启动时自动跳过,不影响内置工具。也可以在启动目录放 `.mcp.json` 配置 HTTP / stdio MCP 服务器(支持 `${VAR}` 环境变量),或让模型调用 `createMcp` 写入。在启动 xAgent 的当前目录放一个 `AGENTS.md`,它的内容会在系统提示词之后注入聊天历史,整个会话只注入一次、之后每轮复用。对话太长时用 `/compact` 把旧消息压缩成摘要(压缩前自动归档完整历史),需要旧细节时模型用 `recallContext` 检索归档;`/save` `/sessions` `/resume` 负责手动保存与恢复会话。详见 [Agent/xAgent/README.md](Agent/xAgent/README.md)。
 
 MCP 相关项目(PetHospitalMCP、AnythingLLMMCP、AnythingLLMServer)的用法见各自目录内的 README。
 
@@ -59,6 +59,8 @@ MCP 相关项目(PetHospitalMCP、AnythingLLMMCP、AnythingLLMServer)的用法�
 
 MCP 配置(1 个):`createMcp` —— 模型按自然语言把新 MCP 服务器写进 `.mcp.json`:校验 HTTP / stdio 配置、合并已有服务器、保留其他字段,同名默认拒绝(可显式覆盖),原子写入 + 回读校验,返回结果不泄露密钥。
 
+上下文归档(1 个):`recallContext` —— 在 `/compact` 压缩前自动归档的会话里按关键字检索旧对话。上下文被压缩后,当前历史只剩摘要和最近几轮;用户提到早先的结论、路径或决定时,模型用这个工具找回原文片段(只读归档,不会修改当前对话)。
+
 MCP 接入(动态):启动时连接 `config.ini` 的 `[mcp]` 段和 `.mcp.json` 配置的 MCP 服务器,把对方工具注册成 `mcp_<服务器>_<工具>`(如 `mcp_pet_list_pets`)。支持 HTTP(可带自定义请求头)与 stdio(`command`/`args`/`env`/`cwd`)两种传输,配置里可用 `${VAR}` / `${VAR:-默认值}` 引用环境变量。宠物医院 MCP 提供 5 个,AnythingLLM MCP 提供 2 个;服务器没启动时自动跳过并在欢迎语中说明原因。MCP 只是"发现 + 调用"的客户端逻辑,和内置工具走同一套 ToolRegistry,Agent 核心无需任何改动。
 
 这些工具都把错误转成给模型看的文本,不抛异常打断对话:缺 Key、HTTP 错误、网络不可达、超时、正文提取失败、程序不存在、参数类型不对、技能名称不合法或已存在,各有对应的清晰提示。
@@ -71,7 +73,7 @@ Agent/xAgent/
 ├─ run.bat        Windows 一键启动
 ├─ core/          核心业务层,不依赖任何 UI 库
 │  ├─ agent.py    Agent 编排:聊天历史 + 流式对话 + 工具调用循环
-│  ├─ config.py   配置读取(config.ini → 结构化配置对象)
+│  ├─ config.py   配置读取 + 缺失 config.ini 自动生成
 │  ├─ events.py   事件协议:core 与 UI 之间唯一的"对话语言"
 │  ├─ llm.py      LLM 客户端:抽象接口 + OpenAI 兼容流式实现
 │  ├─ tools.py    工具注册中心
@@ -86,12 +88,15 @@ Agent/xAgent/
 │  ├─ mcp_ops.py     MCP 客户端(HTTP / stdio,发现外部工具并注册)
 │  ├─ mcp_config.py  .mcp.json 解析(传输推断、${VAR} 展开)
 │  ├─ mcp_config_ops.py createMcp(写入 .mcp.json)
-│  ├─ prompts.py     系统提示词(工作区 + 技能 + MCP 状态)
-│  └─ agents_md.py   AGENTS.md 读取与一次性注入
+│  ├─ prompts.py     系统提示词(工作区 + 技能 + MCP 状态 + 归档检索)
+│  ├─ agents_md.py   AGENTS.md 读取与一次性注入
+│  ├─ context.py     Token 估算 + 会话归档(保存/列出/读取/检索)
+│  └─ context_ops.py recallContext(在压缩前的归档里检索旧细节)
 ├─ .agents/skills/ Agent Skills 目录
 ├─ .mcp.json       可选:MCP 服务器配置
-├─ tui/           Textual 终端界面(斜杠命令、Esc 取消)
-├─ tests/         138 个单元测试(不联网、不需要本地模型)
+├─ .xagent/        会话归档目录(本地生成,已 gitignore)
+├─ tui/           Textual 终端界面(斜杠命令、命令补全、Esc 取消)
+├─ tests/         170 个单元测试(不联网、不需要本地模型)
 └─ docs/          界面截图与生成脚本
 ```
 

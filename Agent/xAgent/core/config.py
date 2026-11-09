@@ -11,8 +11,88 @@ core 层只依赖标准库,不依赖任何第三方 UI 库。
 from __future__ import annotations
 
 import configparser
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# 找不到 config.example.ini 时使用的最小可用配置(不会预先接入 MCP)
+_MINIMAL_CONFIG = """[llm]
+base_url = http://127.0.0.1:1234/v1
+model = qwen3.5-4b
+api_key = DUMMY
+
+[agent]
+max_tool_rounds = 5
+
+[context]
+archive_dir = .xagent/sessions
+keep_recent_turns = 3
+max_tokens = 12000
+summary_max_chars = 4000
+
+[file_ops]
+work_dir = workspace
+max_read_chars = 20000
+max_list_entries = 200
+
+[external_ops]
+max_file_bytes = 200000
+max_output_chars = 50000
+
+[skill_ops]
+skills_dir = .agents/skills
+
+[cli_ops]
+timeout_seconds = 30
+max_output_chars = 4000
+
+[web_ops]
+fetch_timeout_seconds = 20
+max_content_chars = 6000
+
+[search]
+baidu_qianfan_api_key =
+top_k = 10
+timeout_seconds = 20
+
+[mcp]
+servers =
+timeout_seconds = 30
+"""
+
+
+def ensure_config_file(
+    path: str | Path, example_path: str | Path | None = None
+) -> bool:
+    """确保配置文件存在;不存在时自动生成一份,返回是否生成了新文件。
+
+    优先复制 ``config.example.ini``(保留完整注释),但会把默认的 MCP
+    servers 清空,避免第一次启动因为连不上示例服务器而卡顿。
+    示例文件不可用时写入内置的最小配置。
+    """
+    path = Path(path)
+    if path.exists():
+        return False
+
+    text = _MINIMAL_CONFIG
+    if example_path is not None:
+        example = Path(example_path)
+        try:
+            if example.is_file():
+                text = example.read_text(encoding="utf-8")
+                # 只清空 [mcp] 段的 servers 值,注释和其他段保持不变
+                text = re.sub(
+                    r"(?m)^([ \t]*servers[ \t]*=).*$",
+                    r"\1",
+                    text,
+                    count=1,
+                )
+        except (OSError, UnicodeError):
+            text = _MINIMAL_CONFIG
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return True
 
 
 @dataclass(frozen=True)
@@ -33,11 +113,39 @@ class AgentConfig:
 
 
 @dataclass(frozen=True)
+class ContextConfig:
+    """上下文压缩与会话归档的配置。"""
+
+    # 会话归档目录:压缩前自动归档、/save 保存、/resume 恢复、recallContext 检索
+    archive_dir: Path
+    # 压缩时保留最近多少轮对话不摘要(一轮 = 一条用户消息及其后续回复)
+    keep_recent_turns: int = 3
+    # 上下文估算上限(仅用于状态栏提示,不会自动触发压缩)
+    max_tokens: int = 12000
+    # 压缩时模型摘要的最大保留字符数(超出截断)
+    summary_max_chars: int = 4000
+
+
+@dataclass(frozen=True)
 class FileOpsConfig:
     """文件操作工具的配置。"""
 
     # 工作目录:模型只能读写这个目录内的文件(安全限制)
     work_dir: Path
+    # read_file 单次返回的最大字符数,超出截断
+    max_read_chars: int = 20_000
+    # list_dir 最多列出的条目数
+    max_list_entries: int = 200
+
+
+@dataclass(frozen=True)
+class ExternalOpsConfig:
+    """工作区外只读工具(readExternalFile)的配置。"""
+
+    # 单个文件最多读取的字节数,超过直接拒绝
+    max_file_bytes: int = 200_000
+    # 返回给模型的最大字符数(工具调用时可用 max_chars 再调小)
+    max_output_chars: int = 50_000
 
 
 @dataclass(frozen=True)
@@ -127,7 +235,9 @@ class AppConfig:
 
     llm: LLMConfig
     agent: AgentConfig
+    context: ContextConfig
     file_ops: FileOpsConfig
+    external_ops: ExternalOpsConfig
     skill_ops: SkillOpsConfig
     cli_ops: CliOpsConfig
     web_ops: WebOpsConfig
@@ -161,13 +271,56 @@ def load_config(path: str | Path = "config.ini") -> AppConfig:
         max_tool_rounds=parser.getint("agent", "max_tool_rounds", fallback=5),
     )
 
-    # ---- [file_ops] 段:文件工具工作目录 ----
+    # ---- [context] 段:上下文压缩与会话归档 ----
+    archive_dir_text = parser.get(
+        "context", "archive_dir", fallback=".xagent/sessions"
+    )
+    archive_dir = Path(archive_dir_text)
+    if not archive_dir.is_absolute():
+        archive_dir = (path.parent / archive_dir).resolve()
+    keep_recent_turns = parser.getint(
+        "context", "keep_recent_turns", fallback=3
+    )
+    max_context_tokens = parser.getint(
+        "context", "max_tokens", fallback=12000
+    )
+    summary_max_chars = parser.getint(
+        "context", "summary_max_chars", fallback=4000
+    )
+    context = ContextConfig(
+        archive_dir=archive_dir,
+        keep_recent_turns=max(1, min(keep_recent_turns, 20)),
+        max_tokens=max(1000, max_context_tokens),
+        summary_max_chars=max(500, min(summary_max_chars, 20_000)),
+    )
+
+    # ---- [file_ops] 段:文件工具工作目录与读取上限 ----
     work_dir_text = parser.get("file_ops", "work_dir", fallback="workspace")
     work_dir = Path(work_dir_text)
     if not work_dir.is_absolute():
         # 相对路径以配置文件所在目录为基准
         work_dir = (path.parent / work_dir).resolve()
-    file_ops = FileOpsConfig(work_dir=work_dir)
+    file_ops = FileOpsConfig(
+        work_dir=work_dir,
+        max_read_chars=max(
+            100, parser.getint("file_ops", "max_read_chars", fallback=20_000)
+        ),
+        max_list_entries=max(
+            1, parser.getint("file_ops", "max_list_entries", fallback=200)
+        ),
+    )
+
+    # ---- [external_ops] 段:工作区外只读工具的读取上限 ----
+    external_ops = ExternalOpsConfig(
+        max_file_bytes=max(
+            1000,
+            parser.getint("external_ops", "max_file_bytes", fallback=200_000),
+        ),
+        max_output_chars=max(
+            100,
+            parser.getint("external_ops", "max_output_chars", fallback=50_000),
+        ),
+    )
 
     # ---- [skill_ops] 段:技能创建工具(createSkill) ----
     skills_dir_text = parser.get("skill_ops", "skills_dir", fallback=".agents/skills")
@@ -212,7 +365,9 @@ def load_config(path: str | Path = "config.ini") -> AppConfig:
     return AppConfig(
         llm=llm,
         agent=agent,
+        context=context,
         file_ops=file_ops,
+        external_ops=external_ops,
         skill_ops=skill_ops,
         cli_ops=cli_ops,
         web_ops=web_ops,

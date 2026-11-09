@@ -210,6 +210,24 @@ class TestFileOpsTools(unittest.TestCase):
         self.assertIn("[文件] b.txt", result)
         self.assertIn("[目录] sub", result)
 
+    def test_configured_read_and_list_limits(self):
+        """读取与列目录的上限可以通过 register_file_ops 参数配置。"""
+        tools = ToolRegistry()
+        register_file_ops(
+            tools, work_dir=self.work_dir, max_read_chars=100, max_list_entries=1
+        )
+        (self.work_dir / "long.txt").write_text("x" * 200, encoding="utf-8")
+        (self.work_dir / "second.txt").write_text("y", encoding="utf-8")
+
+        import asyncio
+
+        read = asyncio.run(tools.execute("read_file", '{"path": "long.txt"}'))
+        self.assertTrue(read.startswith("x" * 100), read)
+        self.assertIn("已截断", read)
+
+        listing = asyncio.run(tools.execute("list_dir", "{}"))
+        self.assertIn("只显示前 1 项", listing)
+
     def test_path_escape_is_rejected(self):
         """越界路径(../ 逃出工作目录)必须被拒绝。"""
         outside = self.work_dir.parent / "secret.txt"

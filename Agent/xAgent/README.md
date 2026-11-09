@@ -25,11 +25,17 @@
 | —(新增)MCP 工具接入(config.ini + .mcp.json) | [core/mcp_ops.py](core/mcp_ops.py)、[core/mcp_config.py](core/mcp_config.py) | 在原有 HTTP 基础上新增 stdio 传输、自定义请求头与 `${VAR}` 环境变量展开;`.mcp.json` 与 config.ini 的 `[mcp]` 自动合并,服务器没启动自动跳过 |
 | —(新增)createMcp 配置工具 | [core/mcp_config_ops.py](core/mcp_config_ops.py) | 模型可按自然语言把新 MCP 服务器写进 `.mcp.json`:合并已有配置、保留其他字段、同名需 overwrite、原子写入并回读校验,结果里不泄露密钥 |
 | —(新增)统一系统提示词 | [core/prompts.py](core/prompts.py) | 启动时按"工作区 + 可用技能 + MCP 状态"生成完整规则,作为第一条 system 消息注入;工具用法、安全边界集中维护 |
-| —(新增)TUI 斜杠命令与取消 | [tui/app.py](tui/app.py) | `/help` `/status` `/skills` `/mcp` `/clear` `/quit` 等命令;Esc 取消正在进行的对话并回滚本轮聊天历史 |
+| —(新增)TUI 斜杠命令与取消 | [tui/app.py](tui/app.py) | `/help` `/status` `/skills` `/mcp` `/new` `/compact` `/save` `/resume` `/sessions` `/quit` 等命令,支持输入框命令补全;Esc 取消正在进行的对话并回滚本轮聊天历史 |
 | —(新增)AGENTS.md 项目说明 | [core/agents_md.py](core/agents_md.py) | 会话开始时读取项目当前目录的 AGENTS.md,在系统提示词之后作为又一条 system 消息注入,之后全程复用(只注入一次,不重复) |
+| —(新增)上下文压缩与会话归档 | [core/context.py](core/context.py)、[core/context_ops.py](core/context_ops.py)、[core/agent.py](core/agent.py) | `/compact` 先把完整历史归档到 `.xagent/sessions/`,再用模型摘要替换旧消息并保留最近 N 轮;`recallContext` 工具按关键字检索归档;支持 `/save` `/resume` `/sessions` |
+| —(新增)上下文占用提示 | [tui/app.py](tui/app.py) | 状态栏实时显示对话条数与估算 tokens(ASCII 约 4 字符 1 token,中文约 1 字 1 token),达到配置上限 80% 时提醒 `/compact` |
+| —(新增)双栏面板与运行状态侧栏 | [tui/app.py](tui/app.py)、[tui/chat.css](tui/chat.css) | 左侧聊天区,右侧边栏实时显示上下文占用/最近会话/MCP 服务器状态,压缩、保存、恢复、后台 MCP 加载后自动刷新 |
+| —(新增)MCP 后台异步加载 | [main.py](main.py)、[tui/app.py](tui/app.py) | 启动时 MCP 连接放到后台线程,界面和内置工具立即可用;连接完成后侧栏与聊天记录自动更新,不会因服务器未启动而卡住启动 |
+| —(新增)缺失配置自动生成 | [core/config.py](core/config.py)、[main.py](main.py)、[tui/app.py](tui/app.py) | 启动时若 config.ini 不存在,自动按 config.example.ini 生成(清空示例 MCP 服务器避免卡顿),并用弹窗提醒检查 `[llm]` 配置 |
+| —(新增)运行参数配置化 | [core/config.py](core/config.py)、[config.example.ini](config.example.ini) | 模型、工具轮数、超时/截断上限、上下文压缩、文件读取/列目录上限、工作区外只读上限、MCP 等参数全部集中在 config.ini,缺失项有默认值并做安全范围裁剪 |
 
-> 内置工具 **20 个**:10 个文件/目录工具 + 3 个时间工具 + 1 个命令行工具 + 2 个联网工具 + 2 个技能工具 + 1 个工作区外只读工具 + 1 个 MCP 配置工具。
-> 另外还会按 config.ini 的 `[mcp]` 段和 `.mcp.json` 接入外部 MCP 服务器的工具 —— 课程仓库的宠物医院 MCP(5 个)和 AnythingLLM MCP(2 个)全接入后共 **27 个**工具。
+> 内置工具 **21 个**:10 个文件/目录工具 + 3 个时间工具 + 1 个命令行工具 + 2 个联网工具 + 2 个技能工具 + 1 个工作区外只读工具 + 1 个 MCP 配置工具 + 1 个上下文归档检索工具。
+> 另外还会按 config.ini 的 `[mcp]` 段和 `.mcp.json` 接入外部 MCP 服务器的工具 —— 课程仓库的宠物医院 MCP(5 个)和 AnythingLLM MCP(2 个)全接入后共 **28 个**工具。
 
 ## 二、项目目录结构
 
@@ -39,12 +45,12 @@ xAgent/
 ├── run.bat                  # Windows 一键启动(自动建虚拟环境、装依赖、启动)
 ├── config.ini               # 配置文件(模型/工具参数/千帆 API Key;含密钥不入库)
 ├── requirements.txt         # 依赖清单(openai、textual、httpx、trafilatura、mcp)
-├── .gitignore               # 排除 venv、config.ini、workspace
+├── .gitignore               # 排除 venv、config.ini、workspace、.xagent 归档
 ├── README.md                # 本文档
 │
 ├── core/                    # ★ 核心业务层:与 UI 完全无关,可独立复用
 │   ├── __init__.py          #   包说明文档
-│   ├── config.py            #   配置加载:config.ini → 结构化配置对象
+│   ├── config.py            #   配置加载 + 缺失 config.ini 时自动生成
 │   ├── events.py            #   事件协议:core 与 UI 之间唯一的"对话语言"
 │   ├── llm.py               #   LLM 客户端:抽象接口 LLMClient + OpenAI 兼容实现(流式)
 │   ├── tools.py             #   工具注册中心:工具的注册、说明生成、执行
@@ -61,9 +67,12 @@ xAgent/
 │   ├── mcp_ops.py           #   MCP 客户端:HTTP/stdio 连接外部服务器,把其工具注册进 xAgent
 │   ├── mcp_config.py        #   .mcp.json 解析:传输类型推断、${VAR} 展开、逐服务器报错
 │   ├── mcp_config_ops.py    #   createMcp:把新服务器写进 .mcp.json(合并/冲突保护/原子写)
-│   ├── prompts.py           #   系统提示词:工作区规则 + 技能目录 + MCP 状态
+│   ├── prompts.py           #   系统提示词:工作区规则 + 技能目录 + MCP 状态 + 归档检索
 │   ├── agents_md.py         #   读取 AGENTS.md 并生成注入用的 system 消息
-│   └── agent.py             #   Agent 编排核心:聊天历史 + 流式对话 + 工具调用循环 + 取消回滚
+│   ├── context.py           #   上下文估算 + 会话归档(保存/列出/读取/检索)
+│   ├── context_ops.py       #   recallContext:在压缩前的归档里检索旧对话
+│   └── agent.py             #   Agent 编排核心:聊天历史 + 流式对话 + 工具调用循环
+│                            #   + 取消回滚 + 上下文压缩 + 会话保存/恢复
 │
 ├── tui/                     # ★ 界面层:只负责显示和输入,不写业务逻辑
 │   ├── __init__.py          #   包说明文档
@@ -72,6 +81,7 @@ xAgent/
 │
 ├── .agents/skills/          # Agent Skills 目录(每个技能一个子目录 + SKILL.md)
 ├── .mcp.json                # 可选:MCP 服务器配置(与 config.ini 的 [mcp] 合并)
+├── .xagent/sessions/        # 会话归档目录(本地生成,已 gitignore)
 │
 ├── tests/                   # 单元测试(不联网、不需要 LM Studio,使用假 LLM / 本地 HTTP 服务)
 │   ├── test_core.py         #   core 层测试:流式回复、工具调用、错误回滚、路径越界防护
@@ -84,7 +94,8 @@ xAgent/
 │   ├── test_mcp_ops.py      #   MCP 测试:命名消毒/冲突/断线跳过/超时/结果渲染/真实 MCP 端到端
 │   ├── test_mcp_config.py   #   .mcp.json 解析/stdio 接入/createMcp 合并与冲突测试
 │   ├── test_agents_md.py    #   AGENTS.md 测试:编码/空文件/只注入一次/多轮复用/reset 重注入
-│   └── test_tui_smoke.py    #   TUI 冒烟测试:Textual 无头模式验证界面挂载与渲染
+│   ├── test_context.py      #   上下文压缩/归档/摘要兜底/保存恢复/recallContext 测试
+│   └── test_tui_smoke.py    #   TUI 冒烟测试:界面挂载、渲染、斜杠命令与压缩/恢复流程
 │
 └── docs/                    # 文档素材
     ├── make_screenshot.py   #   界面截图生成脚本(无头模式,不需要 LM Studio)
@@ -163,7 +174,9 @@ venv\Scripts\python main.py
 
 ### 配置
 
-编辑 [config.ini](config.ini)(含密钥,已被 .gitignore 排除;拿到代码的同学/老师需自行创建,内容见文件内注释):
+编辑 [config.ini](config.ini)(含密钥,已被 .gitignore 排除)。如果这个文件不存在,
+xAgent 启动时会自动根据 `config.example.ini` 生成一份(默认清空示例 MCP 服务器),
+并用弹窗提醒你检查 `[llm]` 配置;修改后重启即可。完整配置示例:
 
 ```ini
 [llm]
@@ -174,8 +187,20 @@ api_key = DUMMY
 [agent]
 max_tool_rounds = 5                   ; 工具调用最大来回数
 
+[context]
+archive_dir = .xagent/sessions        ; 会话归档目录(相对 config.ini 所在目录)
+keep_recent_turns = 3                 ; /compact 保留最近多少轮完整对话
+max_tokens = 12000                    ; 上下文估算上限(只用于状态栏提示,不自动压缩)
+summary_max_chars = 4000              ; /compact 摘要最大保留字符数
+
 [file_ops]
 work_dir = workspace                  ; 模型只能读写这个目录内的文件
+max_read_chars = 20000                ; read_file 单次返回的最大字符数
+max_list_entries = 200                ; list_dir 最多列出的条目数
+
+[external_ops]
+max_file_bytes = 200000               ; readExternalFile 单文件最大字节数(超过拒绝)
+max_output_chars = 50000              ; readExternalFile 返回的最大字符数(调用时只能调小)
 
 [skill_ops]
 skills_dir = .agents/skills           ; 技能目录:createSkill 创建、loadSkill 读取(相对项目根)
@@ -225,7 +250,8 @@ timeout_seconds = 30                  ; 连接/调用单个 MCP 工具的超时(
 ### 使用
 
 - 输入消息回车发送,AI 流式回复;对话进行中按 **Esc** 可取消,本轮已写入的历史会回滚;
-- 斜杠命令:`/help` 查看命令列表、`/status` 查看模型/工具/技能/MCP 状态、`/skills` 列出技能、`/mcp` 查看 MCP 接入情况、`/clear` 清空对话、`/quit` 退出;
+- 界面是**双栏布局**:左侧聊天,右侧状态栏实时显示上下文占用、最近会话和 MCP 服务器状态;
+- 斜杠命令(输入 `/` 会提示补全):`/help` 查看命令列表、`/status` 查看模型/工具/技能/MCP/上下文占用、`/skills` 列出技能、`/mcp` 查看 MCP 接入情况、`/new` 开始新会话、`/compact [轮数]` 压缩上下文、`/save [名字]` 保存会话、`/resume <名字|last>` 恢复会话、`/sessions` 列出归档、`/quit` 退出;
 - 试试让模型用文件工具:`帮我把"你好,世界"写入 hello.txt,再读出来念给我听`、`列出目录下有什么文件`、`在 notes.txt 末尾追加一行"备忘"`、`把 hello.txt 重命名为 greet.txt`、`建一个 projects/demo 目录`、`hello.txt 是什么类型的文件`、`当前工作目录是哪里`;
 - 试试让模型用时间工具:`现在几点了`、`今天星期几`、`2024 年是闰年吗`;
 - 试试让模型读工作区外的文件:`读一下 C:\Users\你的用户名\Desktop\notes.txt 的前 500 个字`(只读,不会修改原文件);
@@ -248,7 +274,8 @@ timeout_seconds = 30                  ; 连接/调用单个 MCP 工具的超时(
 - 工作目录和路径安全规则(文件工具只能操作 `work_dir` 内,工作区外只读用 readExternalFile);
 - 全部内置工具的使用场景与注意事项;
 - 当前发现的技能名称和简介(完整内容不注入,需要时用 loadSkill 读);
-- 当前 MCP 服务器的接入状态,以及 `mcp_` 前缀工具的存在说明。
+- 当前 MCP 服务器的接入状态,以及 `mcp_` 前缀工具的存在说明;
+- 上下文被压缩后,如何用 recallContext 检索归档里的旧细节。
 
 系统提示词只在会话开始时生成一次,`reset` 时重新生成;修改提示词规则需要重启程序。
 
@@ -273,6 +300,37 @@ xAgent 会在会话开始时把它注入聊天历史,位置紧跟在系统提示
 
 注意:读取的是"程序启动时的工作目录"(双击 run.bat 启动时就是 xAgent 目录),
 不是 Python 解释器安装目录,也不是代码存放目录。
+
+### 上下文压缩与会话归档
+
+对话太长会超出模型上下文。xAgent 提供**先归档、再压缩**的机制,压缩不会丢信息:
+
+1. 输入 `/compact`(或 `/compact 5` 指定保留最近 5 轮);
+2. 先把当前完整对话原子写入 `.xagent/sessions/` 下的 JSON 文件;
+3. 再让模型把较早的消息总结成一段中文摘要(模型失败或返回空内容时,自动改用本地逐条摘要);
+4. 聊天历史变成:系统提示词 + AGENTS.md + **历史摘要** + 最近 N 轮完整对话。
+
+压缩后如果用户提起"之前说过/上次决定的路径",当前上下文里已经找不到,
+模型会调用 `recallContext` 工具在归档里按关键字检索(最多返回 20 条,每条带会话名、时间、角色和片段),
+所以旧细节仍然可查。系统提示词里已经写明了这个使用规则。
+
+**手动保存 / 恢复会话**:
+
+- `/save 我的会话` 把当前对话保存成归档文件(名字会做安全化处理);
+- `/sessions` 列出归档(文件名、时间、消息数);
+- `/resume last` 恢复最新会话,`/resume <文件名或名字片段>` 恢复指定会话;
+- 恢复前会自动把当前未保存的对话归档为 `before-resume`,避免误操作丢失;
+- 恢复后界面会回放历史消息,模型也会重新拿到完整上下文。
+
+**状态栏与 `/status`** 会显示当前对话条数和估算 Token:
+
+- 只是按字符估算(ASCII 约 4 字符 1 token,中文约 1 字 1 token),**不是计费数据**;
+- 达到 `[context] max_tokens` 的 80% 时状态栏提示 `/compact`;
+- 压缩不会自动触发,由用户决定何时压缩。
+
+配置在 `config.ini` 的 `[context]` 段:`archive_dir`(归档目录)、
+`keep_recent_turns`(默认保留轮数)、`max_tokens`(状态栏提示上限)。
+归档文件可能包含隐私内容,仓库的 `.gitignore` 已排除 `.xagent/`,不要提交到公开仓库。
 
 ### Agent Skills(技能自动发现与按需加载)
 
@@ -329,6 +387,11 @@ MCP 服务器接入情况:
 · 服务器 anythingllm: 已接入 2 个工具(mcp_anythingllm_list_workspaces, ...)
 ```
 
+MCP 连接是在**后台线程**里进行的:界面和内置工具立即可用,不用等服务器连接完成。
+右侧状态栏会先显示"正在后台连接",连接结束后自动刷新为每台服务器的真实状态,
+聊天记录里也会追加一条"MCP 后台加载完成"的说明。因此服务器没启动或连接很慢时,
+xAgent 启动本身不会卡住;后台加载完成后,新注册的 MCP 工具从下一轮对话起就能被模型调用。
+
 注意:宠物医院的工具还需要它自己的数据后端(`127.0.0.1:8080`)在运行;
 AnythingLLM 的工具需要 AnythingLLM 服务(`127.0.0.1:3001`)在运行。
 没启动也没关系 —— MCP 调用会返回一段错误说明,模型会如实告诉你,不会让程序崩溃。
@@ -339,9 +402,10 @@ AnythingLLM 的工具需要 AnythingLLM 服务(`127.0.0.1:3001`)在运行。
 venv\Scripts\python -m unittest discover -s tests -v
 ```
 
-当前共 **138 个测试**,覆盖核心对话/工具调用、文件沙箱、命令行、联网、技能发现与加载、
-工作区外只读、MCP(config.ini / `.mcp.json` / stdio / createMcp)、AGENTS.md、系统提示词、
-取消回滚和 TUI 冒烟;全部使用假 LLM 或本地临时服务,不联网、不需要启动 LM Studio。
+当前共 **170 个测试**,覆盖核心对话/工具调用、文件沙箱与可配置读取上限、命令行、联网、技能发现与加载、
+工作区外只读、MCP(config.ini / `.mcp.json` / stdio / createMcp / 后台加载)、AGENTS.md、系统提示词、
+上下文压缩/归档/摘要兜底/会话保存恢复/recallContext、配置解析与缺失配置自动生成、取消回滚和 TUI 冒烟;
+全部使用假 LLM 或本地临时服务,不联网、不需要启动 LM Studio。
 
 ### 生成界面截图(用于作业报告)
 

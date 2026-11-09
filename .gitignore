@@ -13,6 +13,9 @@ venv
 # 模型读写文件的工作目录(演示产生的临时文件)
 workspace
 
+# xAgent 会话归档(/compact、/save 生成的本地对话记录,可能含隐私内容)
+.xagent/
+
 # Python 缓存与构建产物
 __pycache__/
 *.pyc

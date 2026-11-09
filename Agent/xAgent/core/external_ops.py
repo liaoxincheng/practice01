@@ -99,8 +99,19 @@ def _resolve(path: str) -> Path:
         raise ValueError(f"无法解析路径:{text}:{exc}") from exc
 
 
-def register_external_ops(registry: ToolRegistry) -> None:
-    """注册 readExternalFile 工具(只读,不受工作区限制)。"""
+def register_external_ops(
+    registry: ToolRegistry,
+    *,
+    max_file_bytes: int = MAX_FILE_BYTES,
+    max_output_chars: int = MAX_OUTPUT_CHARS,
+) -> None:
+    """注册 readExternalFile 工具(只读,不受工作区限制)。
+
+    :param max_file_bytes: 单个文件最多读取的字节数,超过直接拒绝
+    :param max_output_chars: 返回给模型的最大字符数,工具参数只能在这个范围内调小
+    """
+    max_file_bytes = max(1000, int(max_file_bytes))
+    max_output_chars = max(100, int(max_output_chars))
 
     def read_external_file(path: str, max_chars: int | None = None) -> str:
         """读取工作区之外的纯文本文件,返回带编码/大小信息的正文。"""
@@ -112,10 +123,10 @@ def register_external_ops(registry: ToolRegistry) -> None:
                 return f"错误:这是一个目录,不是文件:{target}"
 
             size = target.stat().st_size
-            if size > MAX_FILE_BYTES:
+            if size > max_file_bytes:
                 return (
                     f"错误:文件过大({_human_size(size)}),"
-                    f"超过 {_human_size(MAX_FILE_BYTES)} 的读取上限"
+                    f"超过 {_human_size(max_file_bytes)} 的读取上限"
                 )
 
             data = target.read_bytes()
@@ -128,10 +139,11 @@ def register_external_ops(registry: ToolRegistry) -> None:
             text = data.decode(encoding)
 
             try:
-                limit = MAX_OUTPUT_CHARS if max_chars is None else int(max_chars)
+                limit = max_output_chars if max_chars is None else int(max_chars)
             except (TypeError, ValueError):
                 return "错误:max_chars 必须是整数"
-            limit = max(1, limit)
+            # 单次调用只能把上限调小,不能突破配置里的上限
+            limit = max(1, min(limit, max_output_chars))
 
             truncated = len(text) > limit
             shown = text[:limit]
@@ -175,8 +187,11 @@ def register_external_ops(registry: ToolRegistry) -> None:
                     },
                     "max_chars": {
                         "type": "integer",
-                        "description": "最多读取的字符数,默认 50000",
-                        "default": 50_000,
+                        "description": (
+                            f"最多读取的字符数,默认 {max_output_chars}"
+                            f"(不能超过该上限)"
+                        ),
+                        "default": max_output_chars,
                     },
                 },
                 "required": ["path"],

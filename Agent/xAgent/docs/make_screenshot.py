@@ -22,6 +22,7 @@ from textual.widgets import Input  # noqa: E402
 from core import events  # noqa: E402
 from core.agent import Agent  # noqa: E402
 from core.cli_ops import register_cli_ops  # noqa: E402
+from core.context_ops import register_context_ops  # noqa: E402
 from core.external_ops import register_external_ops  # noqa: E402
 from core.file_ops import register_file_ops  # noqa: E402
 from core.mcp_config_ops import register_mcp_config_ops  # noqa: E402
@@ -39,12 +40,18 @@ async def main() -> None:
     # 注册全部内置工具(与 main.py 相同的组装方式),让欢迎语的工具数一致;
     # 演示对话只用到文件工具,但其余工具也注册好,截图才和真实启动一样
     tools = ToolRegistry()
-    register_file_ops(tools, work_dir=PROJECT_ROOT / "workspace")
+    register_file_ops(
+        tools,
+        work_dir=PROJECT_ROOT / "workspace",
+        max_read_chars=20_000,
+        max_list_entries=200,
+    )
     register_time_ops(tools)
     register_skill_ops(tools, skills_dir=PROJECT_ROOT / ".agents" / "skills")
     register_external_ops(tools)
     register_cli_ops(tools, timeout_seconds=30.0, max_output_chars=4000)
     register_web_ops(tools)
+    register_context_ops(tools, PROJECT_ROOT / ".xagent" / "sessions")
     register_mcp_config_ops(tools, PROJECT_ROOT / ".mcp.json")
 
     # 三回合剧本:写文件 → 读文件 → 总结回答
@@ -77,6 +84,9 @@ async def main() -> None:
             model_name="qwen3.5-4b",  # 与真实 config.ini 保持一致
         ),
         tools=tools,
+        archive_dir=PROJECT_ROOT / ".xagent" / "sessions",
+        keep_recent_turns=3,
+        max_context_tokens=12000,
     )
 
     app = ChatApp(agent=agent)

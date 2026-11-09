@@ -4,9 +4,45 @@ Screen {
     layout: vertical;
 }
 
+/* 双栏主体:左侧聊天区 + 右侧运行状态栏 */
+#main {
+    height: 1fr;
+}
+
 /* 聊天区:历史记录 + 流式输出 */
 #chat-area {
+    width: 1fr;
     height: 1fr;
+}
+
+/* 右侧状态栏:上下文 / 最近会话 / MCP */
+#sidebar {
+    width: 34;
+    height: 1fr;
+    padding: 0 1;
+    border-left: solid $panel;
+    background: $surface;
+    overflow-y: auto;
+}
+
+#side-title {
+    text-style: bold;
+    color: $accent;
+    margin-bottom: 1;
+}
+
+#side-context {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#side-sessions {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#side-mcp {
+    height: auto;
 }
 
 #log {
@@ -37,4 +73,34 @@ Screen {
 
 #input:focus {
     border: tall $accent;
+}
+
+/* 首次启动自动生成配置时的弹窗 */
+ConfigNoticeScreen {
+    align: center middle;
+    background: $background 60%;
+}
+
+#config-dialog {
+    width: 80%;
+    max-width: 78;
+    height: auto;
+    padding: 1 2;
+    border: thick $warning;
+    background: $surface;
+}
+
+#config-title {
+    text-style: bold;
+    color: $warning;
+    margin-bottom: 1;
+}
+
+#config-message {
+    height: auto;
+}
+
+#config-ok {
+    margin-top: 1;
+    width: 100%;
 }

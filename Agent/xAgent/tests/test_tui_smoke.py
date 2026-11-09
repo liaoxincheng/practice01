@@ -10,16 +10,20 @@
 """
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from typing import Optional
 
-from textual.widgets import Input, RichLog
+from textual.widgets import Input, RichLog, Static
 
 from core import events
 from core.agent import Agent
 from core.llm import LLMClient
 from core.tools import ToolRegistry
-from tui.app import ChatApp
+from tests.test_core import FakeLLM as TurnFakeLLM
+from tests.test_context import make_chat_turns
+from tui.app import ChatApp, ConfigNoticeScreen
 
 
 class FakeLLM(LLMClient):
@@ -127,6 +131,11 @@ class TuiSmokeTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn("/status", text)
             self.assertIn("/skills", text)
             self.assertIn("/mcp", text)
+            self.assertIn("/compact", text)
+            self.assertIn("/save", text)
+            self.assertIn("/resume", text)
+            self.assertIn("/sessions", text)
+            self.assertIn("/new", text)
             self.assertFalse(input_widget.disabled)
 
     async def test_skills_are_shown_in_welcome_and_command(self):
@@ -150,6 +159,54 @@ class TuiSmokeTest(unittest.IsolatedAsyncioTestCase):
             text = log_text(pilot.app)
             self.assertIn("已发现 2 个技能", text)
             self.assertIn("pdf-reader", text)
+
+    async def test_mcp_loader_updates_sidebar_in_background(self):
+        """MCP 后台加载完成前界面已可用,完成后侧边栏显示真实状态。"""
+        import time
+
+        agent = Agent(llm=FakeLLM([]), tools=ToolRegistry())
+        calls = []
+
+        def loader() -> list[str]:
+            time.sleep(0.15)  # 模拟连接服务器的耗时
+            calls.append("done")
+            return ["服务器 demo: 已接入 2 个工具(mcp_demo_a, mcp_demo_b)"]
+
+        app = ChatApp(
+            agent=agent,
+            mcp_status=["MCP 服务器正在后台连接,工具就绪后会显示在右侧栏"],
+            mcp_loader=loader,
+        )
+        async with app.run_test(size=(110, 32)) as pilot:
+            await pilot.pause()
+            # 界面先挂载,没有被 MCP 连接阻塞
+            self.assertTrue(pilot.app.query_one("#input", Input))
+            self.assertIn("正在后台连接", log_text(pilot.app))
+
+            for _ in range(50):
+                await pilot.pause(0.05)
+                if "MCP 后台加载完成" in log_text(pilot.app):
+                    break
+            self.assertEqual(calls, ["done"])
+            self.assertIn("MCP 后台加载完成", log_text(pilot.app))
+            self.assertIn("服务器 demo: 已接入 2 个工具", log_text(pilot.app))
+            sidebar_mcp = pilot.app.query_one("#side-mcp", Static)
+            self.assertIn("demo", str(sidebar_mcp.content))
+            self.assertIn("已接入 2 个工具", str(sidebar_mcp.content))
+
+    async def test_startup_notice_opens_and_closes_modal(self):
+        """config.ini 自动生成时,启动后弹出说明,按 Esc 可关闭。"""
+        agent = Agent(llm=FakeLLM([]), tools=ToolRegistry())
+        app = ChatApp(agent=agent, startup_notice="已自动生成 config.ini")
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            self.assertIsInstance(pilot.app.screen, ConfigNoticeScreen)
+            message = pilot.app.screen.query_one("#config-message", Static)
+            self.assertIn("已自动生成 config.ini", str(message.content))
+
+            await pilot.press("escape")
+            await pilot.pause()
+            self.assertNotIsInstance(pilot.app.screen, ConfigNoticeScreen)
 
     async def test_unknown_slash_command_gets_hint(self):
         """未知斜杠命令不发给模型,只提示查看 /help。"""
@@ -202,6 +259,172 @@ class TuiSmokeTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn("🔧 调用工具: echo", text)
             self.assertIn("✅ 工具结果: 工具结果内容", text)
             self.assertIn("完成", text)
+
+
+class ContextTuiTest(unittest.IsolatedAsyncioTestCase):
+    """TUI 的上下文压缩、会话保存 / 恢复和状态栏 Token 展示。"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.archive_dir = Path(self._tmp.name) / "sessions"
+
+    def make_agent(
+        self, turns: int, *, with_summary: bool = True, archive: bool = True
+    ) -> Agent:
+        script = make_chat_turns(turns)
+        if with_summary:
+            script.append(
+                [events.TextChunk("摘要:测试对话内容"), events.StreamEnd("stop")]
+            )
+        return Agent(
+            llm=TurnFakeLLM(script),
+            tools=ToolRegistry(),
+            archive_dir=self.archive_dir if archive else None,
+            keep_recent_turns=2,
+            max_context_tokens=1000,
+        )
+
+    @staticmethod
+    def status_text(app) -> str:
+        return str(app.query_one("#status", Static).content)
+
+    async def submit(self, pilot, text: str, until=None) -> Input:
+        """输入一条消息并等待后台任务完成(或 until 条件成立)。"""
+        input_widget = pilot.app.query_one("#input", Input)
+        input_widget.value = text
+        await pilot.press("enter")
+        for _ in range(120):
+            await pilot.pause(0.05)
+            if until is not None:
+                if until():
+                    break
+            elif not input_widget.disabled:
+                break
+        return input_widget
+
+    async def test_status_and_suggester_show_context(self):
+        agent = self.make_agent(1)
+        app = ChatApp(agent=agent)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await pilot.pause()
+            input_widget = pilot.app.query_one("#input", Input)
+            self.assertIsNotNone(input_widget.suggester)
+            status = self.status_text(pilot.app)
+            self.assertIn("上下文 0 条", status)
+            self.assertIn("tokens", status)
+            sidebar = pilot.app.query_one("#side-context", Static)
+            self.assertIn("上下文", str(sidebar.content))
+            self.assertIn("0 / 1000 tokens", str(sidebar.content))
+
+            await self.submit(
+                pilot, "你好", until=lambda: "回答1" in log_text(pilot.app)
+            )
+            status = self.status_text(pilot.app)
+            self.assertIn("上下文 2 条", status)
+            self.assertIn("对话 2 条", str(sidebar.content))
+
+    async def test_compact_command_compresses_history(self):
+        agent = self.make_agent(4)
+        app = ChatApp(agent=agent)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await pilot.pause()
+            for index in range(1, 5):
+                await self.submit(
+                    pilot,
+                    f"问题{index}",
+                    until=lambda index=index: f"回答{index}" in log_text(pilot.app),
+                )
+            self.assertEqual(agent.context_stats.conversation_messages, 8)
+
+            input_widget = await self.submit(
+                pilot,
+                "/compact 2",
+                until=lambda: (
+                    "上下文已压缩" in log_text(pilot.app)
+                    and not pilot.app.query_one("#input", Input).disabled
+                ),
+            )
+
+            text = log_text(pilot.app)
+            self.assertIn("🗜️ 正在压缩上下文", text)
+            self.assertIn("上下文已压缩", text)
+            self.assertIn("保留最近 2 轮", text)
+            self.assertIn("完整历史归档", text)
+            self.assertEqual(agent.context_stats.summary_messages, 1)
+            self.assertEqual(agent.context_stats.conversation_messages, 5)
+            self.assertIn("摘要:测试对话内容", agent.messages[0]["content"])
+            self.assertIn("摘要 1 条", self.status_text(pilot.app))
+            self.assertFalse(input_widget.disabled)
+            self.assertEqual(len(list(self.archive_dir.glob("*.json"))), 1)
+
+    async def test_save_sessions_and_resume_commands(self):
+        agent = self.make_agent(3, with_summary=False)
+        app = ChatApp(agent=agent)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await pilot.pause()
+            await self.submit(
+                pilot, "第一轮问题", until=lambda: "回答1" in log_text(pilot.app)
+            )
+
+            await self.submit(pilot, "/save 演示会话")
+            text = log_text(pilot.app)
+            self.assertIn("已保存当前会话", text)
+            self.assertIn("恢复命令:/resume", text)
+            self.assertEqual(len(list(self.archive_dir.glob("*.json"))), 1)
+            sidebar_sessions = pilot.app.query_one("#side-sessions", Static)
+            self.assertIn("最近会话(1)", str(sidebar_sessions.content))
+            self.assertIn("演示会话", str(sidebar_sessions.content))
+
+            await self.submit(pilot, "/new")
+            self.assertIn("已清空对话历史", log_text(pilot.app))
+            self.assertEqual(agent.context_stats.conversation_messages, 0)
+
+            await self.submit(pilot, "/sessions")
+            text = log_text(pilot.app)
+            self.assertIn("已保存", text)
+            self.assertIn("个会话(归档目录", text)
+            self.assertIn("演示会话", text)
+            self.assertIn("/resume last", text)
+
+            await self.submit(pilot, "/resume last")
+            text = log_text(pilot.app)
+            self.assertIn("已恢复会话", text)
+            self.assertEqual(agent.context_stats.conversation_messages, 2)
+            self.assertIn("第一轮问题", log_text(pilot.app))
+
+            await self.submit(pilot, "/status")
+            text = log_text(pilot.app)
+            self.assertIn("上下文:", text)
+            self.assertIn("会话归档目录", text)
+
+    async def test_compact_argument_validation(self):
+        agent = self.make_agent(1)
+        app = ChatApp(agent=agent)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await pilot.pause()
+
+            await self.submit(pilot, "/compact abc")
+            self.assertIn("不是整数", log_text(pilot.app))
+            await self.submit(pilot, "/compact 0")
+            self.assertIn("1 到 20 之间", log_text(pilot.app))
+            self.assertFalse(pilot.app.query_one("#input", Input).disabled)
+            self.assertEqual(agent.context_stats.summary_messages, 0)
+
+    async def test_compact_without_archive_reports_error(self):
+        agent = self.make_agent(1, archive=False)
+        app = ChatApp(agent=agent)
+        async with app.run_test(size=(110, 32)) as pilot:
+            await pilot.pause()
+            await self.submit(
+                pilot,
+                "/compact",
+                until=lambda: (
+                    "未配置上下文归档目录" in log_text(pilot.app)
+                    and not pilot.app.query_one("#input", Input).disabled
+                ),
+            )
+            self.assertIn("未配置上下文归档目录", log_text(pilot.app))
 
 
 if __name__ == "__main__":
